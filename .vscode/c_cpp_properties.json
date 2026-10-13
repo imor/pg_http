@@ -1,0 +1,23 @@
+{
+  "configurations": [
+    {
+      "name": "Mac",
+      "includePath": [
+        "${workspaceFolder}",
+        "/nix/store/rgdbzr400d6df6nnvawd3a7a3s6by1h3-postgresql-17.0/include/server",
+        "/nix/store/rgdbzr400d6df6nnvawd3a7a3s6by1h3-postgresql-17.0/include",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include"
+      ],
+      "macFrameworkPath": [],
+      "compilerPath": "/usr/bin/clang",
+      "compilerArgs": [
+        "-isysroot",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+      ],
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "macos-clang-arm64"
+    }
+  ],
+  "version": 4
+}
