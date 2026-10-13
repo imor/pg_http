@@ -18,7 +18,10 @@
     {
       devShells = forAllSystems (system: {
         default = nixpkgs.legacyPackages.${system}.mkShell {
-          buildInputs = [ xpg.packages.${system}.xpg ];
+          buildInputs = [
+            xpg.packages.${system}.xpg
+            nixpkgs.legacyPackages.${system}.curl
+          ];
         };
       });
     };

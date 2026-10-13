@@ -4,6 +4,7 @@
 #include <funcapi.h>
 #include <utils/builtins.h>
 
+#include <curl/curl.h>
 #include <stdbool.h>
 #include <string.h>
 
