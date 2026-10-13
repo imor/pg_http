@@ -1,8 +1,4 @@
-#include <postgres.h>
-#include <fmgr.h>
-
-#include <funcapi.h>
-#include <utils/builtins.h>
+#include "pg_prelude.h"
 
 #include <curl/curl.h>
 #include <stdbool.h>
@@ -10,28 +6,28 @@
 
 PG_MODULE_MAGIC;
 
-PG_FUNCTION_INFO_V1(split_pair);
-Datum split_pair(PG_FUNCTION_ARGS) {
-  TupleDesc tupdesc;
-  char *key, *val;
-
-  if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-    ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                    errmsg("function returning record called in context "
-                           "that cannot accept type record")));
-
-  key = text_to_cstring(PG_GETARG_TEXT_PP(0));
-  val = strchr(key, '=');
-  if (val) {
-    Datum values[2];
-    bool nulls[2] = {0};
-    HeapTuple tuple;
-
-    *val++ = '\0';
-    values[0] = CStringGetTextDatum(key);
-    values[1] = CStringGetTextDatum(val);
-    tuple = heap_form_tuple(tupdesc, values, nulls);
-    PG_RETURN_DATUM(HeapTupleGetDatum(tuple));
+/*
+ * The function called by postmaster during initialization.
+ * 
+ * This function should:
+ * 
+ * * Register any GUCs.
+ * * Register pg_http's background worker.
+ * 
+*/
+void _PG_init(void)
+{
+  // If it is a binary upgrade we return early because running a background
+  // worker in binary upgrade mode might interfere with the upgrade.
+  if (IsBinaryUpgrade)
+  {
+    return;
   }
-  PG_RETURN_NULL();
+
+  // Ensure that pg_http is configured in shared_preload_libraries
+  if (!process_shared_preload_libraries_in_progress)
+  {
+    ereport(ERROR, errmsg("pg_http is not in shared_preload_libraries"),
+            errhint("Add pg_http to the shared_preload_libraries GUC in postgresql.conf."));
+  }
 }

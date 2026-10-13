@@ -19,8 +19,17 @@ ifeq ($(CC),gcc)
 endif
 
 EXTENSION = pg_http
-DATA = sql/pg_http--0.1.sql
-MODULES = src/pg_http
+DATA = $(wildcard sql/*--*.sql)
+MODULE_big = $(EXTENSION)
+HEADERS = $(wildcard src/*.h)
+SOURCES = $(wildcard src/*.c)
+
+ifdef BUILD_DIR
+OBJS = $(patsubst src/%.c, $(BUILD_DIR)/%.o, $(SOURCES))
+else
+OBJS = $(patsubst src/%.c, src/%.o, $(SOURCES)) # if no BUILD_DIR, just build on src so standard PGXS `make` works
+endif
+
 SHLIB_LINK = -lcurl
 
 PG_CONFIG = pg_config
@@ -32,8 +41,15 @@ PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
 # `xpg build` sets BUILD_DIR and expects the library and extension files there
-build: all
+build: $(BUILD_DIR)/$(EXTENSION)$(DLSUFFIX)
+
+$(BUILD_DIR)/.gitignore: $(EXTENSION).control $(DATA)
 	mkdir -p $(BUILD_DIR)/extension
-	mv src/pg_http$(DLSUFFIX) $(BUILD_DIR)
-	cp pg_http.control sql/pg_http--0.1.sql $(BUILD_DIR)/extension
+	cp $(EXTENSION).control $(DATA) $(BUILD_DIR)/extension
 	echo "*" > $(BUILD_DIR)/.gitignore
+
+$(BUILD_DIR)/%.o: src/%.c $(HEADERS) $(BUILD_DIR)/.gitignore
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/$(EXTENSION)$(DLSUFFIX): $(EXTENSION)$(DLSUFFIX)
+	mv $? $@
