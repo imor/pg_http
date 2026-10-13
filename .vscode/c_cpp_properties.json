@@ -9,6 +9,7 @@
         "/nix/store/ydp55g2mbd6rk6lfw0krkk3jwgdiqj5d-curl-8.17.0-dev/include",
         "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include"
       ],
+      "defines": ["EXTVERSION=\"0.1\""],
       "macFrameworkPath": [],
       "compilerPath": "/usr/bin/clang",
       "compilerArgs": [

@@ -1,3 +1,7 @@
 *.o
 *.dylin
 *.so
+*.control
+!*.control.in
+pg_http--*.sql
+!pg_http--*--*.sql

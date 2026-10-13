@@ -19,7 +19,11 @@ ifeq ($(CC),gcc)
 endif
 
 EXTENSION = pg_http
-DATA = $(wildcard sql/*--*.sql)
+EXTVERSION = 0.1
+
+DATA = $(sort $(wildcard sql/*--*.sql) sql/$(EXTENSION)--$(EXTVERSION).sql)
+
+EXTRA_CLEAN = sql/$(EXTENSION)--$(EXTVERSION).sql $(EXTENSION).control
 MODULE_big = $(EXTENSION)
 HEADERS = $(wildcard src/*.h)
 SOURCES = $(wildcard src/*.c)
@@ -35,13 +39,19 @@ SHLIB_LINK = -lcurl
 PG_CONFIG = pg_config
 
 # treat PostgreSQL headers as system headers so the strict warnings only apply to our code
-PG_CPPFLAGS = -isystem $(shell $(PG_CONFIG) --includedir-server)
+PG_CPPFLAGS = -isystem $(shell $(PG_CONFIG) --includedir-server) -DEXTVERSION=\"$(EXTVERSION)\"
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
 # `xpg build` sets BUILD_DIR and expects the library and extension files there
-build: $(BUILD_DIR)/$(EXTENSION)$(DLSUFFIX)
+build: $(BUILD_DIR)/$(EXTENSION)$(DLSUFFIX) $(EXTENSION).control $(DATA)
+
+sql/$(EXTENSION)--$(EXTVERSION).sql: sql/$(EXTENSION).sql
+	cp $< $@
+
+$(EXTENSION).control: $(EXTENSION).control.in
+	sed "s/@EXTVERSION@/$(EXTVERSION)/g" $< > $@
 
 $(BUILD_DIR)/.gitignore: $(EXTENSION).control $(DATA)
 	mkdir -p $(BUILD_DIR)/extension
