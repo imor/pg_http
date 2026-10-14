@@ -1,6 +1,8 @@
 #include "worker.h"
 #include "guc.h"
 
+static uint32 main_wait_event = 0;
+
 /*
  * The main entry point for the pg_http background worker.
  */
@@ -21,9 +23,12 @@ void pg_http_main(__attribute__((unused)) Datum main_arg)
     // Start main loop
     while (true)
     {
+        if (main_wait_event == 0)
+            main_wait_event = WaitEventExtensionNew("PgHttpMain");
+
         (void)WaitLatch(MyLatch,
                         WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-                        1000, PG_WAIT_EXTENSION);
+                        1000, main_wait_event);
         ResetLatch(MyLatch);
 
         CHECK_FOR_INTERRUPTS();
