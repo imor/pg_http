@@ -3,37 +3,47 @@
 #include "signals.h"
 
 /*
- * The main loop of the background worker.
- * It waits for events coming from:
+ * Goes to sleep waiting for the following events:
  *
  * * Signal handlers
  * * Timers
  * * Network
  *
- * And takes appropriate action based on that. Else it sleeps
- * to avoid burning CPU cycles.
+ * Once received, it takes appropriate actions.
+ * Returns true if termination has been requested, false otherwise.
+ */
+static bool wait_for_events(uint32 main_wait_event) {
+  pgstat_report_activity(STATE_IDLE, "");
+
+  (void)WaitLatch(MyLatch, WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, 1000, main_wait_event);
+  ResetLatch(MyLatch);
+  CHECK_FOR_INTERRUPTS();
+
+  pgstat_report_activity(STATE_RUNNING, "pg_http: working");
+
+  if (termination_requested) {
+    pgstat_report_activity(STATE_RUNNING, "pg_http: exiting");
+    return true;
+  }
+
+  if (ConfigReloadPending) {
+    ConfigReloadPending = false;
+    ProcessConfigFile(PGC_SIGHUP);
+  }
+
+  return false;
+}
+
+/*
+ * The main loop of the background worker.
  */
 static int main_loop(uint32 main_wait_event) {
   while (true) {
-    pgstat_report_activity(STATE_IDLE, "");
-
-    (void)WaitLatch(MyLatch, WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, 1000,
-                    main_wait_event);
-    ResetLatch(MyLatch);
-
-    pgstat_report_activity(STATE_RUNNING, "pg_http: working");
-
-    CHECK_FOR_INTERRUPTS();
-
-    if (termination_requested) {
-      pgstat_report_activity(STATE_RUNNING, "pg_http: exiting");
+    if (wait_for_events(main_wait_event)) {
       break;
     }
 
-    if (ConfigReloadPending) {
-      ConfigReloadPending = false;
-      ProcessConfigFile(PGC_SIGHUP);
-    }
+    // TODO: Add code here to perform the actual work
   }
 
   // We return with an exit code of 1 to ensure that Postgres
