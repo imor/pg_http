@@ -2,8 +2,6 @@
 #include "guc.h"
 #include "signals.h"
 
-static uint32 main_wait_event = 0;
-
 /*
  * The main loop of the background worker.
  * It waits for events coming from:
@@ -15,7 +13,7 @@ static uint32 main_wait_event = 0;
  * And takes appropriate action based on that. Else it sleeps
  * to avoid burning CPU cycles.
  */
-static int main_loop(void) {
+static int main_loop(uint32 main_wait_event) {
   while (true) {
     pgstat_report_activity(STATE_IDLE, "");
 
@@ -60,9 +58,9 @@ void pg_http_main(__attribute__((unused)) Datum main_arg) {
   // Set state, state_change, query, and query_start fields in pg_stat_activity view
   pgstat_report_activity(STATE_RUNNING, "pg_http: initializing");
 
-  if (main_wait_event == 0) main_wait_event = WaitEventExtensionNew("PgHttpMain");
+  uint32 main_wait_event = WaitEventExtensionNew("PgHttpMain");
 
-  int code = main_loop();
+  int code = main_loop(main_wait_event);
 
   ereport(LOG, errmsg("exiting pg_http_main function"));
 
