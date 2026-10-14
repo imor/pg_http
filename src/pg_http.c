@@ -1,16 +1,14 @@
 #include "pg_prelude.h"
-
-#include <curl/curl.h>
-#include <stdbool.h>
-#include <string.h>
-
 #include "worker.h"
 
 PG_MODULE_MAGIC;
 
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
 
-// Hook to request shared memory required by the background worker
+/*
+ * Hook to request shared memory required by the background worker.
+ * This runs in the postmaster process.
+ */
 static void shmem_request(void)
 {
   if (prev_shmem_request_hook)
@@ -22,7 +20,9 @@ static void shmem_request(void)
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 static WorkerSharedState *worker_shared_state;
 
-// Hook to initialize shared memory
+/*
+ * Hook to initialize shared memory. This runs in the postmaster process.
+ */
 static void shmem_init(void)
 {
   if (prev_shmem_startup_hook)
@@ -45,11 +45,11 @@ static void shmem_init(void)
 /*
  * The function called by postmaster during initialization.
  *
- * This function should:
+ * This function registers:
  *
- * * Register any GUCs.
- * * Register pg_http's background worker.
- * * Register shared memory hooks
+ * * GUCs.
+ * * pg_http's background worker.
+ * * shared memory hooks
  *
  */
 void _PG_init(void)

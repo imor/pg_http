@@ -15,6 +15,9 @@ typedef struct
     Latch *procLatch;
 } WorkerSharedState;
 
+/*
+ * The main entry point for the pg_http background worker.
+ */
 PGDLLEXPORT void pg_http_main(Datum main_arg);
 
 #endif /* WORKER_H */
