@@ -7,6 +7,6 @@
 
 extern volatile sig_atomic_t termination_requested;
 extern void                  handle_sigterm(SIGNAL_ARGS);
-extern void setup_signals(void);
+extern void                  setup_signals(void);
 
 #endif /* PG_SIGNALS_H */
