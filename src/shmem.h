@@ -15,6 +15,14 @@ typedef struct
     Latch *procLatch;
 } WorkerSharedState;
 
+/*
+ * Initialize worker shared state
+ */
+void init_worker_shared_state(WorkerSharedState *state)
+{
+    state->procLatch = NULL;
+}
+
 // Background worker state in shared memory, NULL until shmem_init runs
 extern WorkerSharedState *worker_shared_state;
 

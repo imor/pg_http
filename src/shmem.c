@@ -34,7 +34,7 @@ static void shmem_init(void)
 
   if (!found)
   {
-    worker_shared_state->procLatch = NULL;
+    init_worker_shared_state(worker_shared_state);
   }
 
   LWLockRelease(AddinShmemInitLock);
