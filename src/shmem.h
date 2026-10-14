@@ -7,20 +7,18 @@
  * Background worker state saved in the shared memory.
  * Used to communicate with other backends.
  */
-typedef struct
-{
-    // Background worker process's latch. Same as MyLatch global in a process.
-    // Added to shared memory so that other backends can send signals to the
-    // pg_http background worker.
-    Latch *procLatch;
+typedef struct {
+  // Background worker process's latch. Same as MyLatch global in a process.
+  // Added to shared memory so that other backends can send signals to the
+  // pg_http background worker.
+  Latch *procLatch;
 } WorkerSharedState;
 
 /*
  * Initialize worker shared state
  */
-void init_worker_shared_state(WorkerSharedState *state)
-{
-    state->procLatch = NULL;
+void init_worker_shared_state(WorkerSharedState *state) {
+  state->procLatch = NULL;
 }
 
 // Background worker state in shared memory, NULL until shmem_init runs
