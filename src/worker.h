@@ -1,5 +1,5 @@
-#ifndef WORKER_H
-#define WORKER_H
+#ifndef PG_HTTP_WORKER_H
+#define PG_HTTP_WORKER_H
 
 #include "pg_prelude.h"
 
@@ -20,4 +20,4 @@ typedef struct
  */
 PGDLLEXPORT void pg_http_main(Datum main_arg);
 
-#endif /* WORKER_H */
+#endif /* PG_HTTP_WORKER_H */

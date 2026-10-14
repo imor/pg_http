@@ -1,4 +1,5 @@
 #include "pg_prelude.h"
+#include "guc.h"
 #include "worker.h"
 
 PG_MODULE_MAGIC;
@@ -87,4 +88,6 @@ void _PG_init(void)
 
   prev_shmem_startup_hook = shmem_startup_hook;
   shmem_startup_hook = shmem_init;
+
+  register_gucs();
 }
