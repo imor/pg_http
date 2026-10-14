@@ -18,9 +18,11 @@ static uint32 main_wait_event = 0;
 static int main_loop(void) {
   while (true) {
     pgstat_report_activity(STATE_IDLE, "");
+
     (void)WaitLatch(MyLatch, WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, 1000,
                     main_wait_event);
     ResetLatch(MyLatch);
+
     pgstat_report_activity(STATE_RUNNING, "pg_http: working");
 
     CHECK_FOR_INTERRUPTS();

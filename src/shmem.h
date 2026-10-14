@@ -7,7 +7,7 @@
  * Background worker state saved in the shared memory.
  * Used to communicate with other backends.
  */
-typedef struct {
+typedef struct WorkerSharedState {
   // Background worker process's latch. Same as MyLatch global in a process.
   // Added to shared memory so that other backends can send signals to the
   // pg_http background worker.
