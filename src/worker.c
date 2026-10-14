@@ -1,5 +1,6 @@
 #include "worker.h"
 #include "guc.h"
+#include "signals.h"
 
 static uint32 main_wait_event = 0;
 
@@ -10,7 +11,7 @@ void pg_http_main(__attribute__((unused)) Datum main_arg) {
   ereport(LOG, errmsg("inside pg_http_main function"));
 
   // Setup signals
-  pqsignal(SIGTERM, die);
+  pqsignal(SIGTERM, handle_sigterm);
   BackgroundWorkerUnblockSignals();
 
   // Connect to the database
@@ -33,7 +34,16 @@ void pg_http_main(__attribute__((unused)) Datum main_arg) {
     pgstat_report_activity(STATE_RUNNING, "pg_http: working");
 
     CHECK_FOR_INTERRUPTS();
+
+    if (termination_requested) {
+      pgstat_report_activity(STATE_RUNNING, "pg_http: exiting");
+      break;
+    }
   }
 
   ereport(LOG, errmsg("exiting pg_http_main function"));
+
+  // We return with and exit code of 1 to ensure that Postgres
+  // restarts the background worker
+  proc_exit(1);
 }
