@@ -29,6 +29,11 @@ static int main_loop(void) {
       pgstat_report_activity(STATE_RUNNING, "pg_http: exiting");
       break;
     }
+
+    if (ConfigReloadPending) {
+      ConfigReloadPending = false;
+      ProcessConfigFile(PGC_SIGHUP);
+    }
   }
 
   // We return with an exit code of 1 to ensure that Postgres
@@ -42,9 +47,7 @@ static int main_loop(void) {
 void pg_http_main(__attribute__((unused)) Datum main_arg) {
   ereport(LOG, errmsg("inside pg_http_main function"));
 
-  // Setup signals
-  pqsignal(SIGTERM, handle_sigterm);
-  BackgroundWorkerUnblockSignals();
+  setup_signals();
 
   // Connect to the database
   BackgroundWorkerInitializeConnection(guc_database_name, guc_username, 0);

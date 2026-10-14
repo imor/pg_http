@@ -17,3 +17,13 @@ void handle_sigterm(__attribute__((unused)) SIGNAL_ARGS) {
 
   errno = save_errno;
 }
+
+/*
+ * Sets up handlers for SIGTERM and SIGHUP sinals
+ * and unblocks signals for this process.
+ */
+void setup_signals(void) {
+  pqsignal(SIGTERM, handle_sigterm);
+  pqsignal(SIGHUP, SignalHandlerForConfigReload);
+  BackgroundWorkerUnblockSignals();
+}

@@ -8,6 +8,7 @@
 #include <fmgr.h>
 #include <miscadmin.h>
 #include <postmaster/bgworker.h>
+#include <postmaster/interrupt.h>
 #include <storage/ipc.h>
 #include <storage/latch.h>
 #include <storage/lwlock.h>
