@@ -1,10 +1,12 @@
 #ifndef PG_PRELUDE_H
 #define PG_PRELUDE_H
 
+// postgres.h must be included first, otherwise the build breaks
+#include <postgres.h>
+
 #include <c.h>
 #include <fmgr.h>
 #include <miscadmin.h>
-#include <postgres.h>
 #include <postmaster/bgworker.h>
 #include <storage/ipc.h>
 #include <storage/latch.h>

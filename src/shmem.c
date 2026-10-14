@@ -1,6 +1,13 @@
 #include "shmem.h"
 #include "pg_prelude.h"
 
+/*
+ * Initialize worker shared state
+ */
+void init_worker_shared_state(WorkerSharedState *state) {
+  state->procLatch = NULL;
+}
+
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
 
 /*

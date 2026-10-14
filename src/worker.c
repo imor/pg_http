@@ -18,6 +18,8 @@ void pg_http_main(__attribute__((unused)) Datum main_arg) {
 
   // Set application_name column in pg_stat_activity view
   pgstat_report_appname("pg_http");
+
+  // Set state, state_change, query, and query_start fields in pg_stat_activity view
   pgstat_report_activity(STATE_RUNNING, "pg_http: initializing");
 
   if (main_wait_event == 0) main_wait_event = WaitEventExtensionNew("PgHttpMain");
