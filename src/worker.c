@@ -19,8 +19,6 @@ static bool wait_for_events(uint32 main_wait_event) {
   ResetLatch(MyLatch);
   CHECK_FOR_INTERRUPTS();
 
-  pgstat_report_activity(STATE_RUNNING, "pg_http: working");
-
   if (termination_requested) {
     pgstat_report_activity(STATE_RUNNING, "pg_http: exiting");
     return true;
@@ -44,6 +42,7 @@ static int main_loop(uint32 main_wait_event) {
     }
 
     // TODO: Add code here to perform the actual work
+    pgstat_report_activity(STATE_RUNNING, "pg_http: working");
   }
 
   // We return with an exit code of 1 to ensure that Postgres
