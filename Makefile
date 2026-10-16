@@ -25,21 +25,19 @@ DATA = $(sort $(wildcard sql/*--*.sql) sql/$(EXTENSION)--$(EXTVERSION).sql)
 
 EXTRA_CLEAN = sql/$(EXTENSION)--$(EXTVERSION).sql $(EXTENSION).control
 MODULE_big = $(EXTENSION)
-HEADERS = $(wildcard src/*.h)
-SOURCES = $(wildcard src/*.c)
+HEADERS = $(shell find src -name '*.h')
+SOURCES = $(shell find src -name '*.c')
 
-ifdef BUILD_DIR
+# `xpg build` sets BUILD_DIR; plain `make` falls back to `build` so objects never land in src
+BUILD_DIR ?= build
 OBJS = $(patsubst src/%.c, $(BUILD_DIR)/%.o, $(SOURCES))
-else
-OBJS = $(patsubst src/%.c, src/%.o, $(SOURCES)) # if no BUILD_DIR, just build on src so standard PGXS `make` works
-endif
 
 SHLIB_LINK = -lcurl
 
 PG_CONFIG = pg_config
 
 # treat PostgreSQL headers as system headers so the strict warnings only apply to our code
-PG_CPPFLAGS = -isystem $(shell $(PG_CONFIG) --includedir-server) -DEXTVERSION=\"$(EXTVERSION)\"
+PG_CPPFLAGS = -Isrc -isystem $(shell $(PG_CONFIG) --includedir-server) -DEXTVERSION=\"$(EXTVERSION)\"
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
@@ -59,6 +57,7 @@ $(BUILD_DIR)/.gitignore: $(EXTENSION).control $(DATA)
 	echo "*" > $(BUILD_DIR)/.gitignore
 
 $(BUILD_DIR)/%.o: src/%.c $(HEADERS) $(BUILD_DIR)/.gitignore
+	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/$(EXTENSION)$(DLSUFFIX): $(EXTENSION)$(DLSUFFIX)
