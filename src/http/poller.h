@@ -1,6 +1,7 @@
 #ifndef PG_HTTP_POLLER_H
 #define PG_HTTP_POLLER_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __linux__
@@ -20,12 +21,32 @@
 #define POLLER_ALL (POLLER_READ | POLLER_WRITE)
 
 /*
+ * Selects the poller's single one-shot timer instead of an fd. When passed
+ * to poller_ctl, it must be the only flag set in the event and the `fd`
+ * argument is ignored. POLLER_OP_ADD and POLLER_OP_MOD both arm the timer
+ * (replacing a previously armed one) to expire after `timeout_ms`, and
+ * POLLER_OP_DEL disarms it. When returned by poller_wait it means the timer
+ * has expired, and the `fd` of such an event is -1.
+ */
+#define POLLER_TIMER 4
+
+/*
  * The main poller struct containing the root file descriptor for the
  * multiplexing API (epoll or kqueue)
  */
 typedef struct Poller {
   // The root fd
   int fd;
+
+#ifdef POLLER_USE_EPOLL
+  // timerfd registered with the epoll instance to implement the timer.
+  // kqueue has native timers and needs no extra state.
+  int timer_fd;
+
+  // Whether timer_fd has been added to the epoll instance. This happens
+  // lazily the first time the timer is set.
+  bool timer_registered;
+#endif
 } Poller;
 
 // TODO: Consider using a typedef to epoll_event and kevent instead
@@ -42,6 +63,10 @@ typedef struct PollerEvent {
 
   // fd with which this fd is associated
   int fd;
+
+  // Only used with POLLER_TIMER: milliseconds until the timer expires. Zero
+  // means as soon as possible.
+  int timeout_ms;
 
 #ifdef POLLER_USE_KQUEUE
   // Old events which were registered with the kernel. This is needed only
