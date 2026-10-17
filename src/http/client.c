@@ -37,9 +37,9 @@ static int timer_cb(__attribute__((unused)) CURLM *multi, long timeout_ms, void 
   // libcurl passes -1 to indicate the timer should be deleted
   PollerInterest in = {.fd = -1, .timeout_ms = (int)timeout_ms};
   if (timeout_ms < 0)
-    in.old_events = POLLER_TIMER;
+    in.old_events = POLLER_EV_TIMER;
   else
-    in.new_events = POLLER_TIMER;
+    in.new_events = POLLER_EV_TIMER;
 
   if (poller_ctl(client->poller, timeout_ms < 0 ? POLLER_OP_DEL : POLLER_OP_ADD, &in) < 0) {
     ereport(WARNING, errmsg("pg_http: could not set timer: %m"));
@@ -68,8 +68,8 @@ static int socket_cb(__attribute__((unused)) CURL *easy, curl_socket_t sockfd, i
   if (remove && socketp == NULL) return 0;
 
   // CURL_POLL_REMOVE has neither the IN nor the OUT bit, so new_events stays empty for it
-  if (what & CURL_POLL_IN) in.new_events |= POLLER_READ;
-  if (what & CURL_POLL_OUT) in.new_events |= POLLER_WRITE;
+  if (what & CURL_POLL_IN) in.new_events |= POLLER_EV_READ;
+  if (what & CURL_POLL_OUT) in.new_events |= POLLER_EV_WRITE;
 
   PollerOp op = remove ? POLLER_OP_DEL : socketp == NULL ? POLLER_OP_ADD : POLLER_OP_MOD;
 
@@ -200,16 +200,16 @@ int http_client_process(HttpClient *client) {
     }
 
     for (int i = 0; i < n; i++) {
-      uint32_t flags = poller_event_flags(client->poller, &evs[i]);
+      uint32_t flags = poller_event_kind(client->poller, &evs[i]);
 
-      if (flags & POLLER_TIMER) {
+      if (flags & POLLER_EV_TIMER) {
         curl_multi_socket_action(client->multi, CURL_SOCKET_TIMEOUT, 0, &client->running);
         continue;
       }
 
       int mask = 0;
-      if (flags & POLLER_READ) mask |= CURL_CSELECT_IN;
-      if (flags & POLLER_WRITE) mask |= CURL_CSELECT_OUT;
+      if (flags & POLLER_EV_READ) mask |= CURL_CSELECT_IN;
+      if (flags & POLLER_EV_WRITE) mask |= CURL_CSELECT_OUT;
 
       curl_multi_socket_action(client->multi, poller_event_fd(client->poller, &evs[i]), mask,
                                &client->running);

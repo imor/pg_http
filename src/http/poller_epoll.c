@@ -14,23 +14,19 @@ int poller_create(Poller *poller) {
     return -1;
   }
 
-  poller->timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
-  if (poller->timer_fd < 0) {
-    int save_errno = errno;
-    close(poller->fd);
-    poller->fd = -1;
-    errno      = save_errno;
-    return -1;
-  }
-
-  poller->timer_registered = false;
+  poller->timer_fd = -1;
 
   return 0;
 }
 
 int poller_close(Poller *poller) {
-  int res = close(poller->timer_fd);
-  int err = errno;
+  int res = 0;
+  int err = 0;
+
+  if (poller->timer_fd >= 0) {
+    res = close(poller->timer_fd);
+    err = errno;
+  }
 
   poller->timer_fd = -1;
 
@@ -49,10 +45,15 @@ int poller_close(Poller *poller) {
 }
 
 /*
- * Arms or disarms the timer, see POLLER_TIMER.
+ * Arms or disarms the timer, see POLLER_EV_TIMER.
  */
 static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   struct itimerspec its = {0};
+
+  // Nothing to disarm if the timer was never set
+  if (op == POLLER_OP_DEL && poller->timer_fd < 0) {
+    return 0;
+  }
 
   if (op != POLLER_OP_DEL) {
     if (timeout_ms > 0) {
@@ -64,17 +65,26 @@ static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
       its.it_value.tv_nsec = 1;
     }
 
-    // The timerfd is added to the epoll instance when the timer is set for the first time
-    if (!poller->timer_registered) {
-      struct epoll_event ev = {0};
-      ev.events             = EPOLLIN;
-      ev.data.fd            = poller->timer_fd;
-
-      if (epoll_ctl(poller->fd, EPOLL_CTL_ADD, poller->timer_fd, &ev) < 0) {
+    // The timerfd is created and added to the epoll instance when the timer is set for the first
+    // time
+    if (poller->timer_fd < 0) {
+      int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+      if (tfd < 0) {
         return -1;
       }
 
-      poller->timer_registered = true;
+      struct epoll_event ev = {0};
+      ev.events             = EPOLLIN;
+      ev.data.fd            = tfd;
+
+      if (epoll_ctl(poller->fd, EPOLL_CTL_ADD, tfd, &ev) < 0) {
+        int save_errno = errno;
+        close(tfd);
+        errno = save_errno;
+        return -1;
+      }
+
+      poller->timer_fd = tfd;
     }
   }
 
@@ -87,7 +97,7 @@ int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
     return -1;
   }
 
-  if ((in->new_events | in->old_events) & POLLER_TIMER) {
+  if ((in->new_events | in->old_events) & POLLER_EV_TIMER) {
     return timer_ctl(poller, op, in->timeout_ms);
   }
 
@@ -102,8 +112,8 @@ int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
   }
 
   if (op != POLLER_OP_DEL) {
-    if (in->new_events & POLLER_READ) ev.events |= EPOLLIN;
-    if (in->new_events & POLLER_WRITE) ev.events |= EPOLLOUT;
+    if (in->new_events & POLLER_EV_READ) ev.events |= EPOLLIN;
+    if (in->new_events & POLLER_EV_WRITE) ev.events |= EPOLLOUT;
     ev.data.fd = in->fd;
   }
 
@@ -137,14 +147,14 @@ int poller_event_fd(const Poller *poller, const PollerEvent *ev) {
   return ev->data.fd == poller->timer_fd ? -1 : ev->data.fd;
 }
 
-uint32_t poller_event_flags(const Poller *poller, const PollerEvent *ev) {
+uint32_t poller_event_kind(const Poller *poller, const PollerEvent *ev) {
   uint32_t e = ev->events, flags = 0;
 
-  if (ev->data.fd == poller->timer_fd) return POLLER_TIMER;
+  if (ev->data.fd == poller->timer_fd) return POLLER_EV_TIMER;
 
-  if (e & EPOLLIN) flags |= POLLER_READ;
-  if (e & EPOLLOUT) flags |= POLLER_WRITE;
-  if (e & (EPOLLERR | EPOLLHUP)) flags |= POLLER_READ | POLLER_WRITE;
+  if (e & EPOLLIN) flags |= POLLER_EV_READ;
+  if (e & EPOLLOUT) flags |= POLLER_EV_WRITE;
+  if (e & (EPOLLERR | EPOLLHUP)) flags |= POLLER_EV_READ | POLLER_EV_WRITE;
 
   return flags;
 }

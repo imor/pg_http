@@ -33,21 +33,21 @@ int poller_close(Poller *poller) {
  * Identifier of the one and only timer. Timer idents live in a separate
  * namespace from fds so there is no clash.
  */
-#  define POLLER_TIMER_ID 1
+#  define POLLER_EV_TIMER_ID 1
 
 /*
- * Arms or disarms the timer, see POLLER_TIMER.
+ * Arms or disarms the timer, see POLLER_EV_TIMER.
  */
 static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   struct kevent kev;
 
   if (op == POLLER_OP_DEL) {
-    EV_SET(&kev, POLLER_TIMER_ID, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
+    EV_SET(&kev, POLLER_EV_TIMER_ID, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
   } else if (timeout_ms > 0) {
     // Default unit is milliseconds. EV_ADD on an existing timer resets it.
-    EV_SET(&kev, POLLER_TIMER_ID, EVFILT_TIMER, EV_ADD | EV_ONESHOT, 0, timeout_ms, NULL);
+    EV_SET(&kev, POLLER_EV_TIMER_ID, EVFILT_TIMER, EV_ADD | EV_ONESHOT, 0, timeout_ms, NULL);
   } else {
-    EV_SET(&kev, POLLER_TIMER_ID, EVFILT_TIMER, EV_ADD | EV_ONESHOT, NOTE_NSECONDS, 1, NULL);
+    EV_SET(&kev, POLLER_EV_TIMER_ID, EVFILT_TIMER, EV_ADD | EV_ONESHOT, NOTE_NSECONDS, 1, NULL);
   }
 
   if (kevent(poller->fd, &kev, 1, NULL, 0, NULL) < 0) {
@@ -65,7 +65,7 @@ int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
     return -1;
   }
 
-  if ((in->new_events | in->old_events) & POLLER_TIMER) {
+  if ((in->new_events | in->old_events) & POLLER_EV_TIMER) {
     return timer_ctl(poller, op, in->timeout_ms);
   }
 
@@ -78,26 +78,26 @@ int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
 
   switch (op) {
   case POLLER_OP_ADD: {
-    if (new_events & POLLER_READ) EV_SET(&kevs[n++], fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
-    if (new_events & POLLER_WRITE) EV_SET(&kevs[n++], fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
+    if (new_events & POLLER_EV_READ) EV_SET(&kevs[n++], fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+    if (new_events & POLLER_EV_WRITE) EV_SET(&kevs[n++], fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
 
     break;
   }
 
   case POLLER_OP_MOD: {
 
-    if ((new_events & POLLER_READ) && !(old_events & POLLER_READ)) {
+    if ((new_events & POLLER_EV_READ) && !(old_events & POLLER_EV_READ)) {
       // If read event is there in new events but not in old, just add it.
       EV_SET(&kevs[n++], fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
-    } else if (!(new_events & POLLER_READ) && (old_events & POLLER_READ)) {
+    } else if (!(new_events & POLLER_EV_READ) && (old_events & POLLER_EV_READ)) {
       // If read event is not there in new events but is there in old, delete it.
       EV_SET(&kevs[n++], fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
     }
 
-    if ((new_events & POLLER_WRITE) && !(old_events & POLLER_WRITE)) {
+    if ((new_events & POLLER_EV_WRITE) && !(old_events & POLLER_EV_WRITE)) {
       // If write event is there in new events but not in old, just add it.
       EV_SET(&kevs[n++], fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
-    } else if (!(new_events & POLLER_WRITE) && (old_events & POLLER_WRITE)) {
+    } else if (!(new_events & POLLER_EV_WRITE) && (old_events & POLLER_EV_WRITE)) {
       // If write event is not there in new events but is there in old, delete it.
       EV_SET(&kevs[n++], fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
     }
@@ -106,8 +106,8 @@ int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
   }
 
   case POLLER_OP_DEL: {
-    if (old_events & POLLER_READ) EV_SET(&kevs[n++], fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-    if (old_events & POLLER_WRITE) EV_SET(&kevs[n++], fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+    if (old_events & POLLER_EV_READ) EV_SET(&kevs[n++], fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+    if (old_events & POLLER_EV_WRITE) EV_SET(&kevs[n++], fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
 
     break;
   }
@@ -143,11 +143,11 @@ int poller_event_fd(__attribute__((unused)) const Poller *poller, const PollerEv
   return ev->filter == EVFILT_TIMER ? -1 : (int)ev->ident;
 }
 
-uint32_t poller_event_flags(__attribute__((unused)) const Poller *poller, const PollerEvent *ev) {
-  if (ev->filter == EVFILT_TIMER) return POLLER_TIMER;
-  if (ev->filter == EVFILT_READ) return POLLER_READ;
-  if (ev->filter == EVFILT_WRITE) return POLLER_WRITE;
-  return POLLER_NONE;
+uint32_t poller_event_kind(__attribute__((unused)) const Poller *poller, const PollerEvent *ev) {
+  if (ev->filter == EVFILT_TIMER) return POLLER_EV_TIMER;
+  if (ev->filter == EVFILT_READ) return POLLER_EV_READ;
+  if (ev->filter == EVFILT_WRITE) return POLLER_EV_WRITE;
+  return POLLER_EV_NONE;
 }
 
 #endif
