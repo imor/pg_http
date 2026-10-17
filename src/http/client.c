@@ -70,7 +70,7 @@ static int socket_cb(__attribute__((unused)) CURL *easy, curl_socket_t sockfd, i
   PollerOp op = remove ? POLLER_OP_DEL : socketp == NULL ? POLLER_OP_ADD : POLLER_OP_MOD;
 
   // when removing, the fd may already be closed, which also removes it from the poller
-  if (poller_socket_ctl(client->poller, op, &in) < 0 &&
+  if (poller_socket_ctl(client->poller, op, in) < 0 &&
       !(remove && (errno == ENOENT || errno == EBADF))) {
     ereport(WARNING, errmsg("pg_http: could not update fd %d in poller: %m", sockfd));
     return -1;

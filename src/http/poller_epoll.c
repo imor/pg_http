@@ -91,12 +91,7 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   return timerfd_settime(poller->timer_fd, 0, &its, NULL);
 }
 
-int poller_socket_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
-  if (in == NULL) {
-    errno = EINVAL;
-    return -1;
-  }
-
+int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
   struct epoll_event ev = {0};
   int                cmd;
 
@@ -108,12 +103,12 @@ int poller_socket_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
   }
 
   if (op != POLLER_OP_DEL) {
-    if (in->new_events & POLLER_EV_READ) ev.events |= EPOLLIN;
-    if (in->new_events & POLLER_EV_WRITE) ev.events |= EPOLLOUT;
-    ev.data.fd = in->fd;
+    if (in.new_events & POLLER_EV_READ) ev.events |= EPOLLIN;
+    if (in.new_events & POLLER_EV_WRITE) ev.events |= EPOLLOUT;
+    ev.data.fd = in.fd;
   }
 
-  return epoll_ctl(poller->fd, cmd, in->fd, &ev);
+  return epoll_ctl(poller->fd, cmd, in.fd, &ev);
 }
 
 int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {

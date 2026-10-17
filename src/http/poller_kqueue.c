@@ -23,11 +23,6 @@ int poller_create(Poller *poller) {
  */
 #  define TIMER_ID 1
 
-/*
- * Adds, updates, or delete a oneshot timer. If timeout_ms is positive
- * a timer fires after that many milliseconds. If it is zero it fires
- * immediately.
- */
 int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   struct kevent kev;
 
@@ -58,15 +53,10 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   return kevent(poller->fd, &kev, 1, NULL, 0, NULL) < 0 ? -1 : 0;
 }
 
-int poller_socket_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
-  if (in == NULL) {
-    errno = EINVAL;
-    return -1;
-  }
-
-  int      fd         = in->fd;
-  uint32_t new_events = in->new_events;
-  uint32_t old_events = in->old_events;
+int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
+  int      fd         = in.fd;
+  uint32_t new_events = in.new_events;
+  uint32_t old_events = in.old_events;
 
   struct kevent kevs[2];
   int           n = 0;

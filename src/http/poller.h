@@ -123,12 +123,11 @@ int poller_create(Poller *poller);
  *
  * Returns zero on success and -1 on error. errno is set on error.
  */
-int poller_socket_ctl(Poller *poller, PollerOp op, const PollerInterest *interest);
+int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest interest);
 
 /*
-
- * Enables or disable a oneshot timer. The timer is enabled when op is
- * `POLLER_OP_ADD` or `POLLER_OP_MOD` and is delete when it is
+ * Enables or disables a oneshot timer. The timer is enabled when op is
+ * `POLLER_OP_ADD` or `POLLER_OP_MOD` and is deleted when it is
  * `POLLER_OP_DEL`. The timer fires once after `timeout_ms` milliseconds.
  * If `timeout_ms` is zero, it fires immediately.
  *
@@ -161,7 +160,7 @@ int poller_close(Poller *poller);
 int poller_event_fd(const Poller *poller, const PollerEvent *ev);
 
 /*
- * Converts the native event kind to the `PollerEventKind` enum member.
+ * Converts the native event kind to the `PollerEventType` enum member.
  */
 uint32_t poller_event_kind(const Poller *poller, const PollerEvent *ev);
 
