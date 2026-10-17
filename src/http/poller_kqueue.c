@@ -36,7 +36,7 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
     // because it will error with ENOENT which we would have to ignore. The former
     // keeps the timer alive but just disables it, making the delete kevent call
     // succeed without ENOENT.
-    EV_SET(&kev, TIMER_ID, EVFILT_TIMER, EV_ADD | EV_DISPATCH, 0, timeout_ms, NULL);
+    EV_SET(&kev, TIMER_ID, EVFILT_TIMER, EV_ADD | EV_ENABLE | EV_DISPATCH, 0, timeout_ms, NULL);
     break;
   }
   case POLLER_OP_DEL: {
@@ -50,7 +50,7 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   }
   }
 
-  return kevent(poller->fd, &kev, 1, NULL, 0, NULL) < 0 ? -1 : 0;
+  return kevent(poller->fd, &kev, 1, NULL, 0, NULL);
 }
 
 int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
@@ -104,7 +104,7 @@ int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
     return 0;
   }
 
-  return kevent(poller->fd, kevs, n, NULL, 0, NULL) < 0 ? -1 : 0;
+  return kevent(poller->fd, kevs, n, NULL, 0, NULL);
 }
 
 int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {
@@ -126,13 +126,13 @@ int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms
 }
 
 int poller_close(Poller *poller) {
-  int res = close(poller->fd);
+  int res    = close(poller->fd);
+  poller->fd = -1;
 
   if (res < 0) {
     return -1;
   }
 
-  poller->fd = -1;
   return 0;
 }
 

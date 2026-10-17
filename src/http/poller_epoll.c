@@ -24,17 +24,17 @@ int poller_close(Poller *poller) {
   int err = 0;
 
   if (poller->timer_fd >= 0) {
-    res = close(poller->timer_fd);
-    err = errno;
+    res              = close(poller->timer_fd);
+    poller->timer_fd = -1;
+    err              = errno;
   }
 
-  poller->timer_fd = -1;
+  int res = close(poller->fd);
+  poller->fd = -1;
 
-  if (close(poller->fd) < 0) {
+  if (res < 0) {
     return -1;
   }
-
-  poller->fd = -1;
 
   if (res < 0) {
     errno = err;
