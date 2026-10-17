@@ -111,11 +111,6 @@ int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms
   struct timespec  ts;
   struct timespec *tsp = NULL;
 
-  if (max_events <= 0) {
-    errno = EINVAL;
-    return -1;
-  }
-
   if (timeout_ms >= 0) {
     ts.tv_sec  = timeout_ms / 1000;
     ts.tv_nsec = (long)(timeout_ms % 1000) * 1000000L;
