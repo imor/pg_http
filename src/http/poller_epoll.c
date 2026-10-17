@@ -7,11 +7,6 @@
 #  include <sys/timerfd.h>
 #  include <unistd.h>
 
-/*
- * Maximum poller events
- */
-#  define POLLER_MAX_EVENTS 256
-
 int poller_create(Poller *poller) {
   poller->fd = epoll_create1(EPOLL_CLOEXEC);
 
@@ -86,9 +81,14 @@ static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   return timerfd_settime(poller->timer_fd, 0, &its, NULL);
 }
 
-int poller_ctl(Poller *poller, PollerOp op, int fd, PollerEvent *event) {
-  if (event != NULL && event->events == POLLER_TIMER) {
-    return timer_ctl(poller, op, event->timeout_ms);
+int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
+  if (in == NULL) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  if ((in->new_events | in->old_events) & POLLER_TIMER) {
+    return timer_ctl(poller, op, in->timeout_ms);
   }
 
   struct epoll_event ev = {0};
@@ -102,54 +102,51 @@ int poller_ctl(Poller *poller, PollerOp op, int fd, PollerEvent *event) {
   }
 
   if (op != POLLER_OP_DEL) {
-    if (event == NULL) {
-      errno = EINVAL;
-      return -1;
-    }
-    if (event->events & POLLER_READ) ev.events |= EPOLLIN;
-    if (event->events & POLLER_WRITE) ev.events |= EPOLLOUT;
-    ev.data.fd = fd;
+    if (in->new_events & POLLER_READ) ev.events |= EPOLLIN;
+    if (in->new_events & POLLER_WRITE) ev.events |= EPOLLOUT;
+    ev.data.fd = in->fd;
   }
 
-  return epoll_ctl(poller->fd, cmd, fd, &ev);
+  return epoll_ctl(poller->fd, cmd, in->fd, &ev);
 }
 
 int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {
-  if (max_events <= 0 || max_events > POLLER_MAX_EVENTS) {
+  if (max_events <= 0) {
     errno = EINVAL;
     return -1;
   }
 
-  struct epoll_event evs[POLLER_MAX_EVENTS];
-
-  int n = epoll_wait(poller->fd, evs, max_events, timeout_ms);
+  int n = epoll_wait(poller->fd, out, max_events, timeout_ms);
   if (n < 0) {
     return -1;
   }
 
   for (int i = 0; i < n; i++) {
-    uint32_t e = evs[i].events, flags = 0;
-
-    if (evs[i].data.fd == poller->timer_fd) {
+    if (out[i].data.fd == poller->timer_fd) {
       // Drain the timerfd so that it is not reported again
       uint64_t expirations;
       ssize_t  r = read(poller->timer_fd, &expirations, sizeof(expirations));
       (void)r;
-
-      out[i].events = POLLER_TIMER;
-      out[i].fd     = -1;
-      continue;
     }
-
-    if (e & EPOLLIN) flags |= POLLER_READ;
-    if (e & EPOLLOUT) flags |= POLLER_WRITE;
-    if (e & (EPOLLERR | EPOLLHUP)) flags |= POLLER_READ | POLLER_WRITE;
-
-    out[i].events = flags;
-    out[i].fd     = evs[i].data.fd;
   }
 
   return n;
+}
+
+int poller_event_fd(const Poller *poller, const PollerEvent *ev) {
+  return ev->data.fd == poller->timer_fd ? -1 : ev->data.fd;
+}
+
+uint32_t poller_event_flags(const Poller *poller, const PollerEvent *ev) {
+  uint32_t e = ev->events, flags = 0;
+
+  if (ev->data.fd == poller->timer_fd) return POLLER_TIMER;
+
+  if (e & EPOLLIN) flags |= POLLER_READ;
+  if (e & EPOLLOUT) flags |= POLLER_WRITE;
+  if (e & (EPOLLERR | EPOLLHUP)) flags |= POLLER_READ | POLLER_WRITE;
+
+  return flags;
 }
 
 #endif

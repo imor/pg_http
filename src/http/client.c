@@ -12,7 +12,7 @@
  * State of one request, attached to its easy handle via CURLOPT_PRIVATE.
  */
 typedef struct HttpRequest {
-  CURL         *easy;
+  CURL          *easy;
   StringInfoData body;
 } HttpRequest;
 
@@ -35,11 +35,13 @@ static int timer_cb(__attribute__((unused)) CURLM *multi, long timeout_ms, void 
   if (timeout_ms > INT32_MAX) timeout_ms = INT32_MAX;
 
   // libcurl passes -1 to indicate the timer should be deleted
-  PollerEvent ev = {0};
-  ev.events      = POLLER_TIMER;
-  ev.timeout_ms  = (int)timeout_ms;
+  PollerInterest in = {.fd = -1, .timeout_ms = (int)timeout_ms};
+  if (timeout_ms < 0)
+    in.old_events = POLLER_TIMER;
+  else
+    in.new_events = POLLER_TIMER;
 
-  if (poller_ctl(client->poller, timeout_ms < 0 ? POLLER_OP_DEL : POLLER_OP_ADD, -1, &ev) < 0) {
+  if (poller_ctl(client->poller, timeout_ms < 0 ? POLLER_OP_DEL : POLLER_OP_ADD, &in) < 0) {
     ereport(WARNING, errmsg("pg_http: could not set timer: %m"));
     return -1;
   }
@@ -55,38 +57,29 @@ static int timer_cb(__attribute__((unused)) CURLM *multi, long timeout_ms, void 
  */
 static int socket_cb(__attribute__((unused)) CURL *easy, curl_socket_t sockfd, int what,
                      void *userp, void *socketp) {
-  HttpClient *client = (HttpClient *)userp;
-  PollerEvent ev     = {0};
-  ev.fd              = sockfd;
+  HttpClient    *client = (HttpClient *)userp;
+  PollerInterest in     = {.fd = sockfd};
 
-  if (socketp != NULL) {
-    uint32_t old = (uint32_t)((uintptr_t)socketp - 1);
-#ifdef POLLER_USE_KQUEUE
-    ev.old_events = old;
-#else
-    (void)old;
-#endif
-  }
+  if (socketp != NULL) in.old_events = (uint32_t)((uintptr_t)socketp - 1);
 
   bool remove = what == CURL_POLL_REMOVE;
 
   // libcurl may remove a socket it never registered
   if (remove && socketp == NULL) return 0;
 
-  // CURL_POLL_REMOVE has neither the IN nor the OUT bit, so events stays empty for it
-  if (what & CURL_POLL_IN) ev.events |= POLLER_READ;
-  if (what & CURL_POLL_OUT) ev.events |= POLLER_WRITE;
+  // CURL_POLL_REMOVE has neither the IN nor the OUT bit, so new_events stays empty for it
+  if (what & CURL_POLL_IN) in.new_events |= POLLER_READ;
+  if (what & CURL_POLL_OUT) in.new_events |= POLLER_WRITE;
 
   PollerOp op = remove ? POLLER_OP_DEL : socketp == NULL ? POLLER_OP_ADD : POLLER_OP_MOD;
 
   // when removing, the fd may already be closed, which also removes it from the poller
-  if (poller_ctl(client->poller, op, sockfd, &ev) < 0 &&
-      !(remove && (errno == ENOENT || errno == EBADF))) {
+  if (poller_ctl(client->poller, op, &in) < 0 && !(remove && (errno == ENOENT || errno == EBADF))) {
     ereport(WARNING, errmsg("pg_http: could not update fd %d in poller: %m", sockfd));
     return -1;
   }
 
-  curl_multi_assign(client->multi, sockfd, remove ? NULL : (void *)((uintptr_t)ev.events + 1));
+  curl_multi_assign(client->multi, sockfd, remove ? NULL : (void *)((uintptr_t)in.new_events + 1));
   return 0;
 }
 
@@ -207,16 +200,19 @@ int http_client_process(HttpClient *client) {
     }
 
     for (int i = 0; i < n; i++) {
-      if (evs[i].events & POLLER_TIMER) {
+      uint32_t flags = poller_event_flags(client->poller, &evs[i]);
+
+      if (flags & POLLER_TIMER) {
         curl_multi_socket_action(client->multi, CURL_SOCKET_TIMEOUT, 0, &client->running);
         continue;
       }
 
       int mask = 0;
-      if (evs[i].events & POLLER_READ) mask |= CURL_CSELECT_IN;
-      if (evs[i].events & POLLER_WRITE) mask |= CURL_CSELECT_OUT;
+      if (flags & POLLER_READ) mask |= CURL_CSELECT_IN;
+      if (flags & POLLER_WRITE) mask |= CURL_CSELECT_OUT;
 
-      curl_multi_socket_action(client->multi, evs[i].fd, mask, &client->running);
+      curl_multi_socket_action(client->multi, poller_event_fd(client->poller, &evs[i]), mask,
+                               &client->running);
     }
   } while (n == CLIENT_MAX_EVENTS);
 

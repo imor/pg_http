@@ -12,6 +12,12 @@
 #  error "No I/O multiplexing API available on this OS"
 #endif
 
+#ifdef POLLER_USE_EPOLL
+#  include <sys/epoll.h>
+#else
+#  include <sys/event.h>
+#endif
+
 /*
  * Flags indicating the event type.
  */
@@ -21,12 +27,12 @@
 #define POLLER_ALL (POLLER_READ | POLLER_WRITE)
 
 /*
- * Selects the poller's single one-shot timer instead of an fd. When passed
- * to poller_ctl, it must be the only flag set in the event and the `fd`
- * argument is ignored. POLLER_OP_ADD and POLLER_OP_MOD both arm the timer
- * (replacing a previously armed one) to expire after `timeout_ms`, and
- * POLLER_OP_DEL disarms it. When returned by poller_wait it means the timer
- * has expired, and the `fd` of such an event is -1.
+ * Selects the poller's single one-shot timer instead of an fd. When used
+ * in a PollerInterest, it must be the only flag set and `fd` is ignored.
+ * POLLER_OP_ADD and POLLER_OP_MOD both arm the timer (replacing a previously
+ * armed one) to expire after `timeout_ms`, and POLLER_OP_DEL disarms it.
+ * When poller_event_flags returns it, the timer has expired and
+ * poller_event_fd returns -1.
  */
 #define POLLER_TIMER 4
 
@@ -49,40 +55,41 @@ typedef struct Poller {
 #endif
 } Poller;
 
-// TODO: Consider using a typedef to epoll_event and kevent instead
-// of a new PollerEvent struct to avoid copying data.
+/*
+ * An event returned by poller_wait. It is the native event struct of the
+ * underlying API so that nothing is copied out of the kernel's result
+ * array. Use poller_event_fd and poller_event_flags to inspect it.
+ */
+#ifdef POLLER_USE_EPOLL
+typedef struct epoll_event PollerEvent;
+#else
+typedef struct kevent PollerEvent;
+#endif
 
 /*
- * Event accepted by either poller_ctl to update interest for
- * one fd, or returned by poller_wait in the out array to indicate
- * the fds which are readable or writable.
+ * Describes interest in one fd (or the timer) for poller_ctl.
  */
-typedef struct PollerEvent {
-  // A combination of POLLER_READ and POLLER_WRITE
-  uint32_t events;
-
-  // fd with which this fd is associated
+typedef struct PollerInterest {
+  // The fd to register interest in. Always set, except for the timer where
+  // it is ignored.
   int fd;
 
-  // Only used with POLLER_TIMER: milliseconds until the timer expires. Zero
-  // means as soon as possible.
-  int timeout_ms;
-
-#ifdef POLLER_USE_KQUEUE
-  // Old events which were registered with the kernel. This is needed only
-  // for kqueue impl because of the way the kqueue API works. It has a
-  // separate filter for read and write events due to which it's not enough
-  // to know the new events only. For example, if a read event was added
-  // in the past and now the new event is a write event, we'll need to
-  // remove the old read event and then add a write event. If we do not
-  // know that a read event was already added in the past, we can't remove
-  // it. `old_event` stores that past history.
-  //
-  // This is not a problem with epoll API because it replaces all events
-  // for an fd in a single epoll_ctl call.
+  // Events currently registered with the kernel, a combination of
+  // POLLER_READ and POLLER_WRITE. Needed for POLLER_OP_MOD and
+  // POLLER_OP_DEL, ignored for POLLER_OP_ADD. Only kqueue needs it because
+  // it has a separate filter for read and write events, so to modify an fd
+  // we must know which filters to remove. epoll replaces all events for an
+  // fd in a single call. For the timer, set it to POLLER_TIMER to disarm.
   uint32_t old_events;
-#endif
-} PollerEvent;
+
+  // Events to register. Needed for POLLER_OP_ADD and POLLER_OP_MOD,
+  // ignored for POLLER_OP_DEL. For the timer, set it to POLLER_TIMER.
+  uint32_t new_events;
+
+  // Only used when arming the timer (POLLER_TIMER in new_events):
+  // milliseconds until it expires. Zero means as soon as possible.
+  int timeout_ms;
+} PollerInterest;
 
 typedef enum PollerOp {
   // Add the fd to the interest list
@@ -109,27 +116,33 @@ int poller_create(Poller *poller);
 int poller_close(Poller *poller);
 
 /*
- * Adds, modified or deletes interest in an fd to the poller.
- * The ev indicates what kind of event is the caller interested in.
- *
- * When op is POLLER_OP_DEL, ev is ignored in epoll and can be null,
- * otherwise it must be set to a non-null event. For kqueue ev must
- * never be null and for POLLER_OP_MOD and POLLER_OP_DEL `old_events`
- * must be set.
+ * Adds, modifies or deletes interest in an fd (or the timer) in the poller.
+ * See PollerInterest for which members are needed for each op.
  *
  * Returns zero on success and -1 on error. errno is set on error.
  */
-int poller_ctl(Poller *poller, PollerOp op, int fd, PollerEvent *ev);
+int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *interest);
 
 /*
- * Returns a list of events in `out` indicating potentially readable
- * or writable fds. If it is -1 it blocks until an event is available.
- * If it zero or positive, it waits for a maximum of that many
- * milliseconds before returning. Zero makes it return immediately
+ * Fills the caller-allocated `out` array of `max_events` items with events indicating potentially
+ * readable or writable fds. If it is -1 it blocks until an event is available. If it zero or
+ * positive, it waits for a maximum of that many milliseconds before returning. Zero makes it return
+ * immediately
  *
  * On success returns the number of items placed in the `out` array.
  * On error returns -1. errno is set on error.
  */
 int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms);
+
+/*
+ * Returns the fd of an event returned by poller_wait, or -1 for the timer.
+ */
+int poller_event_fd(const Poller *poller, const PollerEvent *ev);
+
+/*
+ * Returns the POLLER_READ and POLLER_WRITE flags of an event returned by
+ * poller_wait, or POLLER_TIMER if the timer expired.
+ */
+uint32_t poller_event_flags(const Poller *poller, const PollerEvent *ev);
 
 #endif /* PG_HTTP_POLLER_H */

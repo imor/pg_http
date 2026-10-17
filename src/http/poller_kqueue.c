@@ -8,11 +8,6 @@
 #  include <sys/types.h>
 #  include <unistd.h>
 
-/*
- * Maximum poller events
- */
-#  define POLLER_MAX_EVENTS 256
-
 int poller_create(Poller *poller) {
   poller->fd = kqueue();
 
@@ -64,20 +59,19 @@ static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   return 0;
 }
 
-int poller_ctl(Poller *poller, PollerOp op, int fd, PollerEvent *ev) {
-  if (ev != NULL && ev->events == POLLER_TIMER) {
-    return timer_ctl(poller, op, ev->timeout_ms);
-  }
-
-  // ev can be null only when removing interest in an fd, otherwise
-  // it is an error
-  if (ev == NULL && op != POLLER_OP_DEL) {
+int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
+  if (in == NULL) {
     errno = EINVAL;
     return -1;
   }
 
-  uint32_t new_events = ev ? ev->events : POLLER_NONE;
-  uint32_t old_events = ev ? ev->old_events : POLLER_ALL;
+  if ((in->new_events | in->old_events) & POLLER_TIMER) {
+    return timer_ctl(poller, op, in->timeout_ms);
+  }
+
+  int      fd         = in->fd;
+  uint32_t new_events = in->new_events;
+  uint32_t old_events = in->old_events;
 
   struct kevent kevs[2];
   int           n = 0;
@@ -129,10 +123,9 @@ int poller_ctl(Poller *poller, PollerOp op, int fd, PollerEvent *ev) {
 }
 
 int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {
-  struct kevent   evs[POLLER_MAX_EVENTS];
   struct timespec ts, *tsp = NULL;
 
-  if (max_events <= 0 || max_events > POLLER_MAX_EVENTS) {
+  if (max_events <= 0) {
     errno = EINVAL;
     return -1;
   }
@@ -143,28 +136,18 @@ int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms
     tsp        = &ts;
   }
 
-  int n = kevent(poller->fd, NULL, 0, evs, max_events, tsp);
-  if (n < 0) {
-    return -1;
-  }
+  return kevent(poller->fd, NULL, 0, out, max_events, tsp);
+}
 
-  for (int i = 0; i < n; i++) {
-    uint32_t flags = 0;
+int poller_event_fd(__attribute__((unused)) const Poller *poller, const PollerEvent *ev) {
+  return ev->filter == EVFILT_TIMER ? -1 : (int)ev->ident;
+}
 
-    if (evs[i].filter == EVFILT_TIMER) {
-      out[i].events = POLLER_TIMER;
-      out[i].fd     = -1;
-      continue;
-    }
-
-    if (evs[i].filter == EVFILT_READ) flags |= POLLER_READ;
-    if (evs[i].filter == EVFILT_WRITE) flags |= POLLER_WRITE;
-
-    out[i].events = flags;
-    out[i].fd     = (int)evs[i].ident;
-  }
-
-  return n;
+uint32_t poller_event_flags(__attribute__((unused)) const Poller *poller, const PollerEvent *ev) {
+  if (ev->filter == EVFILT_TIMER) return POLLER_TIMER;
+  if (ev->filter == EVFILT_READ) return POLLER_READ;
+  if (ev->filter == EVFILT_WRITE) return POLLER_WRITE;
+  return POLLER_NONE;
 }
 
 #endif
