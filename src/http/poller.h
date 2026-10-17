@@ -28,7 +28,7 @@ typedef struct Poller {
 #ifdef POLLER_USE_EPOLL
   // Timer fd created by a call to `timerfd_create` to implement a
   // oneshot timer. This is only set the first time a caller calls
-  // `poller_ctl` with a timer event. Until then its value is -1.
+  // `poller_timer_ctl` to set the timer. Until then its value is -1.
   // Only needed for epoll since kqueue has support for timer
   // filters and it doesn't need  a separate fd for a timer.
   int timer_fd;
@@ -36,7 +36,7 @@ typedef struct Poller {
 } Poller;
 
 /*
- * The operation to perform when calling `poller_ctl`.
+ * The operation to perform when calling `poller_socket_ctl`.
  */
 typedef enum PollerOp {
   // Add the fd to the interest list.
@@ -50,14 +50,14 @@ typedef enum PollerOp {
 } PollerOp;
 
 /*
- * The interest to register when calling `poller_ctl`.
+ * The interest to register when calling `poller_socket_ctl`.
  */
 typedef struct PollerInterest {
   // The fd to register interest in. Set for `POLLER_EV_READ` and
   // `POLLER_EV_WRITE` events. Ignored for `POLLER_EV_TIMER`.
   int fd;
 
-  // A combination of `PollerEventType` enums bitflags to register.
+  // A combination of `POLLER_EV_READ` and `POLLER_EV_WRITE` bitflags to register.
   // Required for `POLLER_OP_ADD` and `POLLER_OP_MOD`, ignored for
   // `POLLER_OP_DEL`.
   uint32_t new_events;
@@ -66,15 +66,10 @@ typedef struct PollerInterest {
   // and `POLLER_OP_DEL`. Ignored for `POLLER_OP_ADD`. Used only by the kqueue
   // API because it has a separate filter for read and write events. So to
   // modify or delete existing filters, those must be explicitly passed in
-  // to `poller_ctl`. epoll keeps a single combined filter which it replaces
+  // to `poller_socket_ctl`. epoll keeps a single combined filter which it replaces
   // when `epoll_ctl` is called, so doesn't need to know the old registered
   // events.
   uint32_t old_events;
-
-  // Number of milliseconds to set the timer to. Zero means as soon
-  // as possible. Used when `new_events` contains `POLLER_EV_TIMER`.
-  // Ignored otherwise.
-  int timeout_ms;
 } PollerInterest;
 
 /*
@@ -90,7 +85,7 @@ typedef struct kevent PollerEvent;
 #endif
 
 /*
- * Poller event types. It is used in `poller_ctl` when registering interest for
+ * Poller event types. It is used in `poller_socket_ctl` when registering interest for
  * an fd. `poller_event_kind` can be used to convert from the native event type
  * to it.
  *
@@ -123,12 +118,23 @@ typedef enum {
 int poller_create(Poller *poller);
 
 /*
- * Adds, modifies or deletes interest in an fd, or the timer, in the poller.
+ * Adds, modifies or deletes interest in a socket fd in the poller.
  * See `PollerInterest` for which members are needed for each op.
  *
  * Returns zero on success and -1 on error. errno is set on error.
  */
-int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *interest);
+int poller_socket_ctl(Poller *poller, PollerOp op, const PollerInterest *interest);
+
+/*
+
+ * Enables or disable a oneshot timer. The timer is enabled when op is
+ * `POLLER_OP_ADD` or `POLLER_OP_MOD` and is delete when it is
+ * `POLLER_OP_DEL`. The timer fires once after `timeout_ms` milliseconds.
+ * If `timeout_ms` is zero, it fires immediately.
+ *
+ * Returns zero on success and -1 on error. errno is set on error.
+ */
+int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms);
 
 /*
  * Fills the caller-allocated `out` array of `max_events` items with events

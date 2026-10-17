@@ -47,7 +47,7 @@ int poller_close(Poller *poller) {
 /*
  * Arms or disarms the timer, see POLLER_EV_TIMER.
  */
-static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
+int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   struct itimerspec its = {0};
 
   // Nothing to disarm if the timer was never set
@@ -91,14 +91,10 @@ static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   return timerfd_settime(poller->timer_fd, 0, &its, NULL);
 }
 
-int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
+int poller_socket_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
   if (in == NULL) {
     errno = EINVAL;
     return -1;
-  }
-
-  if ((in->new_events | in->old_events) & POLLER_EV_TIMER) {
-    return timer_ctl(poller, op, in->timeout_ms);
   }
 
   struct epoll_event ev = {0};

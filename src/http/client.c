@@ -35,17 +35,9 @@ static int timer_cb(__attribute__((unused)) CURLM *multi, long timeout_ms, void 
   if (timeout_ms > INT32_MAX) timeout_ms = INT32_MAX;
 
   // libcurl passes -1 to indicate the timer should be deleted
-  PollerInterest in = {.fd = -1, .timeout_ms = (int)timeout_ms};
-  PollerOp       op;
-  if (timeout_ms >= 0) {
-    in.new_events = POLLER_EV_TIMER;
-    op            = POLLER_OP_ADD;
-  } else {
-    in.old_events = POLLER_EV_TIMER;
-    op            = POLLER_OP_DEL;
-  }
+  PollerOp op = timeout_ms >= 0 ? POLLER_OP_ADD : POLLER_OP_DEL;
 
-  if (poller_ctl(client->poller, op, &in) < 0) {
+  if (poller_timer_ctl(client->poller, op, (int)timeout_ms) < 0) {
     ereport(WARNING, errmsg("pg_http: could not set timer: %m"));
     return -1;
   }
@@ -78,7 +70,8 @@ static int socket_cb(__attribute__((unused)) CURL *easy, curl_socket_t sockfd, i
   PollerOp op = remove ? POLLER_OP_DEL : socketp == NULL ? POLLER_OP_ADD : POLLER_OP_MOD;
 
   // when removing, the fd may already be closed, which also removes it from the poller
-  if (poller_ctl(client->poller, op, &in) < 0 && !(remove && (errno == ENOENT || errno == EBADF))) {
+  if (poller_socket_ctl(client->poller, op, &in) < 0 &&
+      !(remove && (errno == ENOENT || errno == EBADF))) {
     ereport(WARNING, errmsg("pg_http: could not update fd %d in poller: %m", sockfd));
     return -1;
   }

@@ -21,25 +21,31 @@ int poller_create(Poller *poller) {
  * the id and filter pair. So a (1, `EVFILT_TIMER`) is different from
  * (1, `EVFILT_READ`).
  */
-#  define POLLER_EV_TIMER_ID 1
+#  define TIMER_ID 1
 
 /*
  * Adds, updates, or delete a oneshot timer. If timeout_ms is positive
  * a timer fires after that many milliseconds. If it is zero it fires
  * immediately.
  */
-static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
+int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   struct kevent kev;
 
   switch (op) {
   case POLLER_OP_ADD:
   case POLLER_OP_MOD: {
     // Add and modify are the same because kqueue just replaces the timeout filter
-    EV_SET(&kev, POLLER_EV_TIMER_ID, EVFILT_TIMER, EV_ADD | EV_DISPATCH, 0, timeout_ms, NULL);
+    //
+    // We use EV_DISPATCH intead of EV_ONESHOT because the latter deletes the
+    // timer once it fires, which is problematic for our delete kevent call later
+    // because it will error with ENOENT which we would have to ignore. The former
+    // keeps the timer alive but just disables it, making the delete kevent call
+    // succeed without ENOENT.
+    EV_SET(&kev, TIMER_ID, EVFILT_TIMER, EV_ADD | EV_DISPATCH, 0, timeout_ms, NULL);
     break;
   }
   case POLLER_OP_DEL: {
-    EV_SET(&kev, POLLER_EV_TIMER_ID, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
+    EV_SET(&kev, TIMER_ID, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
     break;
   }
   default: {
@@ -52,14 +58,10 @@ static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   return kevent(poller->fd, &kev, 1, NULL, 0, NULL) < 0 ? -1 : 0;
 }
 
-int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
+int poller_socket_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
   if (in == NULL) {
     errno = EINVAL;
     return -1;
-  }
-
-  if ((in->new_events | in->old_events) & POLLER_EV_TIMER) {
-    return timer_ctl(poller, op, in->timeout_ms);
   }
 
   int      fd         = in->fd;
