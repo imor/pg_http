@@ -3,9 +3,6 @@
 #ifdef POLLER_USE_KQUEUE
 
 #  include <errno.h>
-#  include <sys/event.h>
-#  include <sys/time.h>
-#  include <sys/types.h>
 #  include <unistd.h>
 
 int poller_create(Poller *poller) {
@@ -18,45 +15,41 @@ int poller_create(Poller *poller) {
   return 0;
 }
 
-int poller_close(Poller *poller) {
-  int res = close(poller->fd);
-
-  if (res < 0) {
-    return -1;
-  }
-
-  poller->fd = -1;
-  return 0;
-}
-
 /*
- * Identifier of the one and only timer. Timer idents live in a separate
- * namespace from fds so there is no clash.
+ * Id of the timer when used in the `EV_SET` call. This can be the same
+ * as another fd because in kqueue a kevent is uniquely identified by
+ * the id and filter pair. So a (1, `EVFILT_TIMER`) is different from
+ * (1, `EVFILT_READ`).
  */
 #  define POLLER_EV_TIMER_ID 1
 
 /*
- * Arms or disarms the timer, see POLLER_EV_TIMER.
+ * Adds, updates, or delete a oneshot timer. If timeout_ms is positive
+ * a timer fires after that many milliseconds. If it is zero it fires
+ * immediately.
  */
 static int timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   struct kevent kev;
 
-  if (op == POLLER_OP_DEL) {
+  switch (op) {
+  case POLLER_OP_ADD:
+  case POLLER_OP_MOD: {
+    // Add and modify are the same because kqueue just replaces the timeout filter
+    EV_SET(&kev, POLLER_EV_TIMER_ID, EVFILT_TIMER, EV_ADD | EV_DISPATCH, 0, timeout_ms, NULL);
+    break;
+  }
+  case POLLER_OP_DEL: {
     EV_SET(&kev, POLLER_EV_TIMER_ID, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
-  } else if (timeout_ms > 0) {
-    // Default unit is milliseconds. EV_ADD on an existing timer resets it.
-    EV_SET(&kev, POLLER_EV_TIMER_ID, EVFILT_TIMER, EV_ADD | EV_ONESHOT, 0, timeout_ms, NULL);
-  } else {
-    EV_SET(&kev, POLLER_EV_TIMER_ID, EVFILT_TIMER, EV_ADD | EV_ONESHOT, NOTE_NSECONDS, 1, NULL);
+    break;
   }
-
-  if (kevent(poller->fd, &kev, 1, NULL, 0, NULL) < 0) {
-    // Disarming a timer which already fired or was never set is not an error
-    if (op == POLLER_OP_DEL && errno == ENOENT) return 0;
+  default: {
+    errno = EINVAL;
     return -1;
+    break;
+  }
   }
 
-  return 0;
+  return kevent(poller->fd, &kev, 1, NULL, 0, NULL) < 0 ? -1 : 0;
 }
 
 int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
@@ -123,7 +116,8 @@ int poller_ctl(Poller *poller, PollerOp op, const PollerInterest *in) {
 }
 
 int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {
-  struct timespec ts, *tsp = NULL;
+  struct timespec  ts;
+  struct timespec *tsp = NULL;
 
   if (max_events <= 0) {
     errno = EINVAL;
@@ -137,6 +131,17 @@ int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms
   }
 
   return kevent(poller->fd, NULL, 0, out, max_events, tsp);
+}
+
+int poller_close(Poller *poller) {
+  int res = close(poller->fd);
+
+  if (res < 0) {
+    return -1;
+  }
+
+  poller->fd = -1;
+  return 0;
 }
 
 int poller_event_fd(__attribute__((unused)) const Poller *poller, const PollerEvent *ev) {

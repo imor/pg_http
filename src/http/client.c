@@ -36,12 +36,16 @@ static int timer_cb(__attribute__((unused)) CURLM *multi, long timeout_ms, void 
 
   // libcurl passes -1 to indicate the timer should be deleted
   PollerInterest in = {.fd = -1, .timeout_ms = (int)timeout_ms};
-  if (timeout_ms < 0)
-    in.old_events = POLLER_EV_TIMER;
-  else
+  PollerOp       op;
+  if (timeout_ms >= 0) {
     in.new_events = POLLER_EV_TIMER;
+    op            = POLLER_OP_ADD;
+  } else {
+    in.old_events = POLLER_EV_TIMER;
+    op            = POLLER_OP_DEL;
+  }
 
-  if (poller_ctl(client->poller, timeout_ms < 0 ? POLLER_OP_DEL : POLLER_OP_ADD, &in) < 0) {
+  if (poller_ctl(client->poller, op, &in) < 0) {
     ereport(WARNING, errmsg("pg_http: could not set timer: %m"));
     return -1;
   }
