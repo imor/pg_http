@@ -141,10 +141,14 @@ int poller_event_fd(__attribute__((unused)) const Poller *poller, const PollerEv
 }
 
 uint32_t poller_event_kind(__attribute__((unused)) const Poller *poller, const PollerEvent *ev) {
+  uint32_t flags = POLLER_EV_NONE;
+
   if (ev->filter == EVFILT_TIMER) return POLLER_EV_TIMER;
-  if (ev->filter == EVFILT_READ) return POLLER_EV_READ;
-  if (ev->filter == EVFILT_WRITE) return POLLER_EV_WRITE;
-  return POLLER_EV_NONE;
+  if (ev->filter == EVFILT_READ) flags |= POLLER_EV_READ;
+  if (ev->filter == EVFILT_WRITE) flags |= POLLER_EV_WRITE;
+  if ((ev->flags & EV_EOF) && ev->fflags != 0) flags |= POLLER_EV_ERROR;
+
+  return flags;
 }
 
 #endif

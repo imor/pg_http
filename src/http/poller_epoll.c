@@ -145,7 +145,7 @@ uint32_t poller_event_kind(const Poller *poller, const PollerEvent *ev) {
 
   if (e & EPOLLIN) flags |= POLLER_EV_READ;
   if (e & EPOLLOUT) flags |= POLLER_EV_WRITE;
-  if (e & (EPOLLERR | EPOLLHUP)) flags |= POLLER_EV_READ | POLLER_EV_WRITE;
+  if (e & (EPOLLERR | EPOLLHUP)) flags |= POLLER_EV_ERROR;
 
   return flags;
 }

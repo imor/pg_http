@@ -107,7 +107,10 @@ typedef enum {
   POLLER_EV_BOTH = POLLER_EV_READ | POLLER_EV_WRITE,
 
   // Represents a timer event.
-  POLLER_EV_TIMER = 1 << 2
+  POLLER_EV_TIMER = 1 << 2,
+
+  // Represents an error or hangup on a socket.
+  POLLER_EV_ERROR = 1 << 3
 } PollerEventType;
 
 /*

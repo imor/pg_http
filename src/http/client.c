@@ -207,6 +207,7 @@ int http_client_process(HttpClient *client) {
       int mask = 0;
       if (flags & POLLER_EV_READ) mask |= CURL_CSELECT_IN;
       if (flags & POLLER_EV_WRITE) mask |= CURL_CSELECT_OUT;
+      if (flags & POLLER_EV_ERROR) mask |= CURL_CSELECT_ERR;
 
       curl_multi_socket_action(client->multi, poller_event_fd(client->poller, &evs[i]), mask,
                                &client->running);
