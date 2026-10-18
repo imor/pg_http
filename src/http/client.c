@@ -38,7 +38,7 @@ static int timer_cb(__attribute__((unused)) CURLM *multi, long timeout_ms, void 
   // libcurl passes -1 to indicate the timer should be deleted
   PollerOp op = timeout_ms >= 0 ? POLLER_OP_ADD : POLLER_OP_DEL;
 
-  if (poller_timer_ctl(client->poller, op, (int)timeout_ms) < 0) {
+  if (poller_timer_ctl(&client->poller, op, (int)timeout_ms) < 0) {
     int err = errno;
     ereport(WARNING, errmsg("pg_http: could not set timer: %s", strerror(err)));
     return -1;
@@ -72,7 +72,7 @@ static int socket_cb(__attribute__((unused)) CURL *easy, curl_socket_t sockfd, i
   PollerOp op = remove ? POLLER_OP_DEL : socketp == NULL ? POLLER_OP_ADD : POLLER_OP_MOD;
 
   // when removing, the fd may already be closed, which also removes it from the poller
-  if (poller_socket_ctl(client->poller, op, in) < 0 &&
+  if (poller_socket_ctl(&client->poller, op, in) < 0 &&
       !(remove && (errno == ENOENT || errno == EBADF))) {
     int err = errno;
     ereport(WARNING,
@@ -84,13 +84,18 @@ static int socket_cb(__attribute__((unused)) CURL *easy, curl_socket_t sockfd, i
   return 0;
 }
 
-int http_client_init(HttpClient *client, Poller *poller) {
-  curl_global_init(CURL_GLOBAL_DEFAULT);
-  client->poller  = poller;
-  client->running = 0;
-  client->multi   = curl_multi_init();
+int http_client_init(HttpClient *client) {
+  if (poller_create(&client->poller) < 0) return -1;
 
-  if (client->multi == NULL) return -1;
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  client->multi = curl_multi_init();
+  if (client->multi == NULL) {
+    curl_global_cleanup();
+    poller_close(&client->poller);
+    return -1;
+  }
+
+  client->running = 0;
 
   curl_multi_setopt(client->multi, CURLMOPT_SOCKETFUNCTION, socket_cb);
   curl_multi_setopt(client->multi, CURLMOPT_SOCKETDATA, client);
@@ -100,31 +105,15 @@ int http_client_init(HttpClient *client, Poller *poller) {
   return 0;
 }
 
+int http_client_fd(HttpClient *client) {
+  return client->poller.fd;
+}
+
 static void request_free(HttpClient *client, HttpRequest *req) {
   curl_multi_remove_handle(client->multi, req->easy);
   curl_easy_cleanup(req->easy);
   pfree(req->body.data);
   pfree(req);
-}
-
-void http_client_close(HttpClient *client) {
-  if (client->multi == NULL) return;
-
-  CURL **easies = curl_multi_get_handles(client->multi);
-
-  if (easies != NULL) {
-    for (int i = 0; easies[i] != NULL; i++) {
-      HttpRequest *req = NULL;
-      curl_easy_getinfo(easies[i], CURLINFO_PRIVATE, &req);
-      if (req != NULL) request_free(client, req);
-    }
-    curl_free(easies);
-  }
-
-  curl_multi_cleanup(client->multi);
-  client->multi   = NULL;
-  client->running = 0;
-  curl_global_cleanup();
 }
 
 /*
@@ -194,7 +183,7 @@ int http_client_process(HttpClient *client) {
   int         n;
 
   do {
-    n = poller_wait(client->poller, evs, CLIENT_MAX_EVENTS, 0);
+    n = poller_wait(&client->poller, evs, CLIENT_MAX_EVENTS, 0);
 
     if (n < 0) {
       if (errno == EINTR) return 0;
@@ -204,7 +193,7 @@ int http_client_process(HttpClient *client) {
     }
 
     for (int i = 0; i < n; i++) {
-      uint32_t flags = poller_event_kind(client->poller, &evs[i]);
+      uint32_t flags = poller_event_kind(&client->poller, &evs[i]);
 
       if (flags & POLLER_EV_TIMER) {
         curl_multi_socket_action(client->multi, CURL_SOCKET_TIMEOUT, 0, &client->running);
@@ -216,7 +205,7 @@ int http_client_process(HttpClient *client) {
       if (flags & POLLER_EV_WRITE) mask |= CURL_CSELECT_OUT;
       if (flags & POLLER_EV_ERROR) mask |= CURL_CSELECT_ERR;
 
-      curl_multi_socket_action(client->multi, poller_event_fd(client->poller, &evs[i]), mask,
+      curl_multi_socket_action(client->multi, poller_event_fd(&client->poller, &evs[i]), mask,
                                &client->running);
     }
   } while (n == CLIENT_MAX_EVENTS);
@@ -224,4 +213,23 @@ int http_client_process(HttpClient *client) {
   check_finished(client);
 
   return 0;
+}
+
+void http_client_close(HttpClient *client) {
+  CURL **easies = curl_multi_get_handles(client->multi);
+
+  if (easies != NULL) {
+    for (int i = 0; easies[i] != NULL; i++) {
+      HttpRequest *req = NULL;
+      curl_easy_getinfo(easies[i], CURLINFO_PRIVATE, &req);
+      if (req != NULL) request_free(client, req);
+    }
+    curl_free(easies);
+  }
+
+  curl_multi_cleanup(client->multi);
+  poller_close(&client->poller);
+  client->multi   = NULL;
+  client->running = 0;
+  curl_global_cleanup();
 }

@@ -17,13 +17,12 @@
 /*
  * An HTTP client driven by libcurl's multi socket interface. libcurl tells
  * the client which sockets and timeouts it needs via callbacks, which are
- * forwarded to the poller. The owner of the client must wait on `poller->fd`
+ * forwarded to the poller. The owner of the client must wait on `poller.fd`
  * and call http_client_process whenever it becomes readable.
  */
 typedef struct HttpClient {
-  // The poller which is used to wait for socket and timer events. It is
-  // owned by the caller and must outlive the client.
-  Poller *poller;
+  // The poller which is used to wait for socket and timer events
+  Poller poller;
 
   // The curl multi handle
   CURLM *multi;
@@ -33,16 +32,16 @@ typedef struct HttpClient {
 } HttpClient;
 
 /*
- * Initializes a client which uses `poller` for I/O multiplexing.
- * curl_global_init must have been called before. Returns zero on
- * success and -1 on error.
+ * Initializes a client and creates its poller. Returns zero on success and
+ * -1 on error, in which case errno is set if the poller could not be created.
  */
-int http_client_init(HttpClient *client, Poller *poller);
+int http_client_init(HttpClient *client);
 
 /*
- * Aborts all in-flight requests and releases all resources.
+ * Returns the fd which should be waited to become readable before calling
+ * `http_client_process`.
  */
-void http_client_close(HttpClient *client);
+int http_client_fd(HttpClient *client);
 
 /*
  * Starts a GET request to `url`. The request makes progress when
@@ -56,5 +55,10 @@ int http_client_get(HttpClient *client, const char *url);
  * success and -1 on error.
  */
 int http_client_process(HttpClient *client);
+
+/*
+ * Aborts all in-flight requests and releases all resources.
+ */
+void http_client_close(HttpClient *client);
 
 #endif /* PG_HTTP_CLIENT_H */

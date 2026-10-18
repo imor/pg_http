@@ -48,22 +48,16 @@ static bool wait_for_events(WaitEventSet *set, uint32 main_wait_event) {
  * The main loop of the background worker.
  */
 static int main_loop(uint32 main_wait_event) {
-  Poller     poller;
   HttpClient client;
 
-  if (poller_create(&poller) < 0) {
-    int err = errno;
-    ereport(ERROR, errmsg("pg_http: could not create poller: %s", strerror(err)));
-  }
-
-  if (http_client_init(&client, &poller) < 0) {
+  if (http_client_init(&client) < 0) {
     ereport(ERROR, errmsg("pg_http: could not initialize http client"));
   }
 
   WaitEventSet *set = CreateWaitEventSet(NULL, 3);
   AddWaitEventToSet(set, WL_LATCH_SET, PGINVALID_SOCKET, MyLatch, NULL);
   AddWaitEventToSet(set, WL_EXIT_ON_PM_DEATH, PGINVALID_SOCKET, NULL, NULL);
-  AddWaitEventToSet(set, WL_SOCKET_READABLE, poller.fd, NULL, NULL);
+  AddWaitEventToSet(set, WL_SOCKET_READABLE, http_client_fd(&client), NULL, NULL);
 
   if (http_client_get(&client, TEST_URL) < 0) {
     ereport(WARNING, errmsg("pg_http: could not start request to %s", TEST_URL));
@@ -82,7 +76,6 @@ static int main_loop(uint32 main_wait_event) {
 
   FreeWaitEventSet(set);
   http_client_close(&client);
-  poller_close(&poller);
 
   // We return with an exit code of 1 to ensure that Postgres
   // restarts the background worker
