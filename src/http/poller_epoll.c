@@ -5,6 +5,7 @@
 #  include <errno.h>
 #  include <sys/epoll.h>
 #  include <sys/timerfd.h>
+#  include <time.h>
 #  include <unistd.h>
 
 int poller_create(Poller *poller) {
@@ -29,7 +30,7 @@ int poller_close(Poller *poller) {
     err              = errno;
   }
 
-  int res = close(poller->fd);
+  res = close(poller->fd);
   poller->fd = -1;
 
   if (res < 0) {

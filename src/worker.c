@@ -3,6 +3,9 @@
 #include "http/client.h"
 #include "signals.h"
 
+#include <errno.h>
+#include <string.h>
+
 /*
  * The URL requested on startup, hardcoded for testing purposes.
  */
@@ -49,7 +52,8 @@ static int main_loop(uint32 main_wait_event) {
   HttpClient client;
 
   if (poller_create(&poller) < 0) {
-    ereport(ERROR, errmsg("pg_http: could not create poller: %m"));
+    int err = errno;
+    ereport(ERROR, errmsg("pg_http: could not create poller: %s", strerror(err)));
   }
 
   if (http_client_init(&client, &poller) < 0) {

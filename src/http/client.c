@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <lib/stringinfo.h>
 #include <utils/memutils.h>
@@ -38,7 +39,8 @@ static int timer_cb(__attribute__((unused)) CURLM *multi, long timeout_ms, void 
   PollerOp op = timeout_ms >= 0 ? POLLER_OP_ADD : POLLER_OP_DEL;
 
   if (poller_timer_ctl(client->poller, op, (int)timeout_ms) < 0) {
-    ereport(WARNING, errmsg("pg_http: could not set timer: %m"));
+    int err = errno;
+    ereport(WARNING, errmsg("pg_http: could not set timer: %s", strerror(err)));
     return -1;
   }
 
@@ -72,7 +74,9 @@ static int socket_cb(__attribute__((unused)) CURL *easy, curl_socket_t sockfd, i
   // when removing, the fd may already be closed, which also removes it from the poller
   if (poller_socket_ctl(client->poller, op, in) < 0 &&
       !(remove && (errno == ENOENT || errno == EBADF))) {
-    ereport(WARNING, errmsg("pg_http: could not update fd %d in poller: %m", sockfd));
+    int err = errno;
+    ereport(WARNING,
+            errmsg("pg_http: could not update fd %d in poller: %s", sockfd, strerror(err)));
     return -1;
   }
 
@@ -192,7 +196,8 @@ int http_client_process(HttpClient *client) {
 
     if (n < 0) {
       if (errno == EINTR) return 0;
-      ereport(WARNING, errmsg("pg_http: poller_wait failed: %m"));
+      int err = errno;
+      ereport(WARNING, errmsg("pg_http: poller_wait failed: %s", strerror(err)));
       return -1;
     }
 
