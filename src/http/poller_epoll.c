@@ -113,21 +113,7 @@ int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms
     return -1;
   }
 
-  int n = epoll_wait(poller->fd, out, max_events, timeout_ms);
-  if (n < 0) {
-    return -1;
-  }
-
-  for (int i = 0; i < n; i++) {
-    if (out[i].data.fd == poller->timer_fd) {
-      // Drain the timerfd so that it is not reported again
-      uint64_t expirations;
-      ssize_t  r = read(poller->timer_fd, &expirations, sizeof(expirations));
-      (void)r;
-    }
-  }
-
-  return n;
+  return epoll_wait(poller->fd, out, max_events, timeout_ms);
 }
 
 int poller_close(Poller *poller) {
