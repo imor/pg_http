@@ -13,6 +13,7 @@
 #pragma GCC diagnostic pop
 
 #include "poller/poller.h"
+#include "response.h"
 
 /*
  * An HTTP client driven by libcurl's multi socket interface. libcurl tells
@@ -29,6 +30,9 @@ typedef struct HttpClient {
 
   // Number of transfers which are still in progress
   int running;
+
+  // The transfer whose response was last returned by http_client_next
+  struct Transfer *finished;
 } HttpClient;
 
 /*
@@ -44,14 +48,23 @@ int http_client_init(HttpClient *client);
 int http_client_fd(HttpClient *client);
 
 /*
- * Starts a GET request to `url`. The request makes progress when
- * http_client_process is called. Returns zero on success and -1 on error.
+ * Starts `req`. The request borrows all its memory (see request.h) and makes
+ * progress when http_client_process is called. Returns zero on success and -1
+ * on error.
  */
-int http_client_get(HttpClient *client, const char *url);
+int http_client_send(HttpClient *client, const HttpRequest *req);
+
+/*
+ * Returns the next finished response, successfully or not, or NULL if none is
+ * ready. The response belongs to the client and is valid until the next call
+ * to http_client_next or http_client_close. Call repeatedly after
+ * http_client_process until it returns NULL.
+ */
+const HttpResponse *http_client_next(HttpClient *client);
 
 /*
  * Collects ready events from the poller without blocking, advances the
- * transfers accordingly and reports the finished ones. Returns zero on
+ * transfers accordingly. Finished ones are retrieved with http_client_next. Returns zero on
  * success and -1 on error.
  */
 int http_client_process(HttpClient *client);

@@ -10,20 +10,26 @@
 #define CLIENT_MAX_EVENTS 64
 
 /*
- * State of one request, attached to its easy handle via CURLOPT_PRIVATE.
+ * One request/response exchange. It owns the request, the response being
+ * filled in and the curl handle, and is attached to the easy handle via
+ * CURLOPT_PRIVATE.
  */
-typedef struct HttpRequest {
-  CURL          *easy;
-  StringInfoData body;
-} HttpRequest;
+typedef struct Transfer {
+  HttpRequest        req; // borrows its memory from the caller
+  HttpResponse       res;
+  CURL              *easy;
+  struct curl_slist *req_headers;
+  char               errbuf[CURL_ERROR_SIZE];
+} Transfer;
 
 static size_t write_cb(char *data, size_t size, size_t nmemb, void *userp) {
-  HttpRequest *req   = (HttpRequest *)userp;
-  size_t       total = size * nmemb;
+  http_response_write_body(&((Transfer *)userp)->res, data, size * nmemb);
+  return size * nmemb;
+}
 
-  appendBinaryStringInfo(&req->body, data, (int)total);
-
-  return total;
+static size_t header_cb(char *data, size_t size, size_t nmemb, void *userp) {
+  http_response_write_header(&((Transfer *)userp)->res, data, size * nmemb);
+  return size * nmemb;
 }
 
 /*
@@ -95,7 +101,8 @@ int http_client_init(HttpClient *client) {
     return -1;
   }
 
-  client->running = 0;
+  client->running  = 0;
+  client->finished = NULL;
 
   curl_multi_setopt(client->multi, CURLMOPT_SOCKETFUNCTION, socket_cb);
   curl_multi_setopt(client->multi, CURLMOPT_SOCKETDATA, client);
@@ -109,72 +116,82 @@ int http_client_fd(HttpClient *client) {
   return client->poller.fd;
 }
 
-static void request_free(HttpClient *client, HttpRequest *req) {
-  curl_multi_remove_handle(client->multi, req->easy);
-  curl_easy_cleanup(req->easy);
-  pfree(req->body.data);
-  pfree(req);
+static void transfer_free(HttpClient *client, Transfer *t) {
+  if (t->easy) {
+    curl_multi_remove_handle(client->multi, t->easy);
+    curl_easy_cleanup(t->easy);
+  }
+  curl_slist_free_all(t->req_headers);
+  http_response_free(&t->res);
+  pfree(t);
 }
 
-/*
- * Reports and frees all finished transfers.
- */
-static void check_finished(HttpClient *client) {
+const HttpResponse *http_client_next(HttpClient *client) {
+  // The previously returned response is released now
+  if (client->finished != NULL) {
+    transfer_free(client, client->finished);
+    client->finished = NULL;
+  }
+
   CURLMsg *msg;
   int      msgs_left;
 
   while ((msg = curl_multi_info_read(client->multi, &msgs_left)) != NULL) {
     if (msg->msg != CURLMSG_DONE) continue;
 
-    HttpRequest *req  = NULL;
-    long         code = 0;
+    Transfer *t    = NULL;
+    long      code = 0;
 
-    curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &req);
+    curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &t);
     curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &code);
 
-    if (msg->data.result == CURLE_OK) {
-      ereport(LOG, errmsg("pg_http: request finished with status %ld, %d body bytes", code,
-                          req->body.len));
-    } else {
-      ereport(LOG, errmsg("pg_http: request failed: %s", curl_easy_strerror(msg->data.result)));
-    }
+    CURLcode    result = msg->data.result;
+    const char *err    = t->errbuf[0] ? t->errbuf : curl_easy_strerror(result);
 
-    request_free(client, req);
+    http_response_finish(&t->res, (int)result, err, (int)code);
+
+    // The easy handle is no longer needed, but the response stays until the next call
+    curl_multi_remove_handle(client->multi, t->easy);
+    curl_easy_cleanup(t->easy);
+    t->easy          = NULL;
+    client->finished = t;
+    return &t->res;
   }
+
+  return NULL;
 }
 
-int http_client_get(HttpClient *client, const char *url) {
-  // Requests outlive any short-lived memory context the caller may be in
+int http_client_send(HttpClient *client, const HttpRequest *req) {
+  // Transfers outlive any short-lived memory context the caller may be in
   MemoryContext old = MemoryContextSwitchTo(TopMemoryContext);
-  HttpRequest  *req = palloc0(sizeof(HttpRequest));
-  initStringInfo(&req->body);
+  Transfer     *t   = palloc0(sizeof(Transfer));
   MemoryContextSwitchTo(old);
 
-  req->easy = curl_easy_init();
-  if (req->easy == NULL) {
-    pfree(req->body.data);
-    pfree(req);
+  t->req = *req;
+  http_response_init(&t->res, &t->req);
+
+  t->easy = curl_easy_init();
+  if (t->easy == NULL || http_request_apply(&t->req, t->easy, &t->req_headers) < 0) {
+    transfer_free(client, t);
     return -1;
   }
 
-  curl_easy_setopt(req->easy, CURLOPT_URL, url);
-  curl_easy_setopt(req->easy, CURLOPT_WRITEFUNCTION, write_cb);
-  curl_easy_setopt(req->easy, CURLOPT_WRITEDATA, req);
-  curl_easy_setopt(req->easy, CURLOPT_PRIVATE, req);
-  curl_easy_setopt(req->easy, CURLOPT_NOSIGNAL, 1L);
-  curl_easy_setopt(req->easy, CURLOPT_TIMEOUT_MS, 10000L);
+  CURL *e = t->easy;
+  curl_easy_setopt(e, CURLOPT_WRITEFUNCTION, write_cb);
+  curl_easy_setopt(e, CURLOPT_WRITEDATA, t);
+  curl_easy_setopt(e, CURLOPT_HEADERFUNCTION, header_cb);
+  curl_easy_setopt(e, CURLOPT_HEADERDATA, t);
+  curl_easy_setopt(e, CURLOPT_PRIVATE, t);
+  curl_easy_setopt(e, CURLOPT_ERRORBUFFER, t->errbuf);
+  curl_easy_setopt(e, CURLOPT_NOSIGNAL, 1L);
 
-  if (curl_multi_add_handle(client->multi, req->easy) != CURLM_OK) {
-    curl_easy_cleanup(req->easy);
-    pfree(req->body.data);
-    pfree(req);
+  if (curl_multi_add_handle(client->multi, e) != CURLM_OK) {
+    transfer_free(client, t);
     return -1;
   }
 
   // Kick off the transfer. libcurl will ask for a timer and sockets via the callbacks.
   curl_multi_socket_action(client->multi, CURL_SOCKET_TIMEOUT, 0, &client->running);
-  check_finished(client);
-
   return 0;
 }
 
@@ -210,8 +227,6 @@ int http_client_process(HttpClient *client) {
     }
   } while (n == CLIENT_MAX_EVENTS);
 
-  check_finished(client);
-
   return 0;
 }
 
@@ -220,12 +235,15 @@ void http_client_close(HttpClient *client) {
 
   if (easies != NULL) {
     for (int i = 0; easies[i] != NULL; i++) {
-      HttpRequest *req = NULL;
-      curl_easy_getinfo(easies[i], CURLINFO_PRIVATE, &req);
-      if (req != NULL) request_free(client, req);
+      Transfer *t = NULL;
+      curl_easy_getinfo(easies[i], CURLINFO_PRIVATE, &t);
+      if (t != NULL) transfer_free(client, t);
     }
     curl_free(easies);
   }
+
+  if (client->finished != NULL) transfer_free(client, client->finished);
+  client->finished = NULL;
 
   curl_multi_cleanup(client->multi);
   poller_close(&client->poller);

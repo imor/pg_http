@@ -59,7 +59,8 @@ static int main_loop(uint32 main_wait_event) {
   AddWaitEventToSet(set, WL_EXIT_ON_PM_DEATH, PGINVALID_SOCKET, NULL, NULL);
   AddWaitEventToSet(set, WL_SOCKET_READABLE, http_client_fd(&client), NULL, NULL);
 
-  if (http_client_get(&client, TEST_URL) < 0) {
+  HttpRequest req = {.method = HTTP_GET, .url = TEST_URL};
+  if (http_client_send(&client, &req) < 0) {
     ereport(WARNING, errmsg("pg_http: could not start request to %s", TEST_URL));
   }
 
@@ -72,6 +73,16 @@ static int main_loop(uint32 main_wait_event) {
     // at it with a zero timeout here. This never blocks.
     pgstat_report_activity(STATE_RUNNING, "pg_http: working");
     http_client_process(&client);
+
+    const HttpResponse *res;
+    while ((res = http_client_next(&client)) != NULL) {
+      if (res->curl_code != 0) {
+        ereport(LOG, errmsg("pg_http: request failed: %s", res->error));
+      } else {
+        ereport(LOG, errmsg("pg_http: request finished with status %d, %d headers, %d body bytes",
+                            res->status, (int)res->header_count, (int)res->body.len));
+      }
+    }
   }
 
   FreeWaitEventSet(set);
