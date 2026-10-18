@@ -9,62 +9,74 @@
 #  include <unistd.h>
 
 int poller_create(Poller *poller) {
+  // We initialize the epoll fd now
   poller->fd = epoll_create1(EPOLL_CLOEXEC);
 
   if (poller->fd < 0) {
     return -1;
   }
 
+  // The timer fd will be initialized lazily when required
   poller->timer_fd = -1;
 
   return 0;
 }
 
-/*
- * Arms or disarms the timer, see POLLER_EV_TIMER.
- */
 int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
-  struct itimerspec its = {0};
-
-  // Nothing to disarm if the timer was never set
-  if (op == POLLER_OP_DEL && poller->timer_fd < 0) {
-    return 0;
-  }
-
-  if (op != POLLER_OP_DEL) {
-    if (timeout_ms > 0) {
-      its.it_value.tv_sec  = timeout_ms / 1000;
-      its.it_value.tv_nsec = (long)(timeout_ms % 1000) * 1000000L;
-    } else {
-      // An all-zero it_value disarms the timer, so the closest we can
-      // get to "now" is one nanosecond.
-      its.it_value.tv_nsec = 1;
-    }
-
-    // The timerfd is created and added to the epoll instance when the timer is set for the first
-    // time
+  switch (op) {
+  case POLLER_OP_ADD:
+  case POLLER_OP_MOD: {
+    // Lazily initialize timer_fd and register it with the root fd
     if (poller->timer_fd < 0) {
-      int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
-      if (tfd < 0) {
+      poller->timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+      if (poller->timer_fd < 0) {
         return -1;
       }
 
       struct epoll_event ev = {0};
       ev.events             = EPOLLIN;
-      ev.data.fd            = tfd;
+      ev.data.fd            = poller->timer_fd;
 
-      if (epoll_ctl(poller->fd, EPOLL_CTL_ADD, tfd, &ev) < 0) {
+      if (epoll_ctl(poller->fd, EPOLL_CTL_ADD, poller->timer_fd, &ev) < 0) {
         int save_errno = errno;
-        close(tfd);
+        close_fd(&poller->timer_fd);
         errno = save_errno;
         return -1;
       }
-
-      poller->timer_fd = tfd;
     }
-  }
 
-  return timerfd_settime(poller->timer_fd, 0, &its, NULL);
+    struct itimerspec its   = {0};
+    int               flags = 0;
+
+    if (timeout_ms > 0) {
+      its.it_value.tv_sec  = timeout_ms / 1000;
+      its.it_value.tv_nsec = (long)(timeout_ms % 1000) * 1000000L;
+    } else if (timeout_ms == 0) {
+      // To make the timer fire immediately we set its timeout to an
+      // absolute value of 1 nanosecond past the epoch.
+      flags                = TFD_TIMER_ABSTIME;
+      its.it_value.tv_nsec = 1;
+    } else {
+      // Negative timeout_ms value is an error
+      errno = EINVAL;
+      return -1;
+    }
+
+    return timerfd_settime(poller->timer_fd, flags, &its, NULL);
+  }
+  case POLLER_OP_DEL: {
+    if (poller->timer_fd >= 0) {
+      return close_fd(&poller->timer_fd);
+    }
+    break;
+  }
+  default: {
+    errno = EINVAL;
+    return -1;
+    break;
+  }
+  }
+  return 0;
 }
 
 int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
