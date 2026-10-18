@@ -90,10 +90,18 @@ int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
   default           : errno = EINVAL; return -1;
   }
 
-  if (op != POLLER_OP_DEL) {
+  switch (op) {
+  case POLLER_OP_ADD:
+  case POLLER_OP_MOD: {
     if (in.new_events & POLLER_EV_READ) ev.events |= EPOLLIN;
     if (in.new_events & POLLER_EV_WRITE) ev.events |= EPOLLOUT;
     ev.data.fd = in.fd;
+    break;
+  }
+  case POLLER_OP_DEL: {
+    break;
+  }
+  default: errno = EINVAL; return -1;
   }
 
   return epoll_ctl(poller->fd, cmd, in.fd, &ev);
@@ -138,13 +146,14 @@ int poller_event_fd(const Poller *poller, const PollerEvent *ev) {
 }
 
 uint32_t poller_event_kind(const Poller *poller, const PollerEvent *ev) {
-  uint32_t e = ev->events, flags = 0;
-
   if (ev->data.fd == poller->timer_fd) return POLLER_EV_TIMER;
 
-  if (e & EPOLLIN) flags |= POLLER_EV_READ;
-  if (e & EPOLLOUT) flags |= POLLER_EV_WRITE;
-  if (e & (EPOLLERR | EPOLLHUP)) flags |= POLLER_EV_ERROR;
+  uint32_t events = ev->events;
+  uint32_t flags  = 0;
+
+  if (events & EPOLLIN) flags |= POLLER_EV_READ;
+  if (events & EPOLLOUT) flags |= POLLER_EV_WRITE;
+  if (events & (EPOLLERR | EPOLLHUP)) flags |= POLLER_EV_ERROR;
 
   return flags;
 }
