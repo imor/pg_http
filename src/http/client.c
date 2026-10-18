@@ -85,6 +85,7 @@ static int socket_cb(__attribute__((unused)) CURL *easy, curl_socket_t sockfd, i
 }
 
 int http_client_init(HttpClient *client, Poller *poller) {
+  curl_global_init(CURL_GLOBAL_DEFAULT);
   client->poller  = poller;
   client->running = 0;
   client->multi   = curl_multi_init();
@@ -123,6 +124,7 @@ void http_client_close(HttpClient *client) {
   curl_multi_cleanup(client->multi);
   client->multi   = NULL;
   client->running = 0;
+  curl_global_cleanup();
 }
 
 /*

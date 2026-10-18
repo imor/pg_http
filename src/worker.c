@@ -97,8 +97,6 @@ void pg_http_main(__attribute__((unused)) Datum main_arg) {
 
   setup_signals();
 
-  curl_global_init(CURL_GLOBAL_DEFAULT);
-
   // Connect to the database
   BackgroundWorkerInitializeConnection(guc_database_name, guc_username, 0);
 
@@ -113,8 +111,6 @@ void pg_http_main(__attribute__((unused)) Datum main_arg) {
   int code = main_loop(main_wait_event);
 
   ereport(LOG, errmsg("exiting pg_http_main function"));
-
-  curl_global_cleanup();
 
   proc_exit(code);
 }
