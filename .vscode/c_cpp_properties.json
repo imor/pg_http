@@ -4,11 +4,15 @@
       "name": "Default",
       "includePath": [
         "${workspaceFolder}/src",
-        "/nix/store/*-postgresql-*/include/server",
-        "/nix/store/*-postgresql-*/include",
-        "/nix/store/*-curl-*-dev/include"
+        "/nix/store/3pv7s3r7c5sm49028v2hvz71iqgfbi61-postgresql-17.6/include/server",
+        "/nix/store/3pv7s3r7c5sm49028v2hvz71iqgfbi61-postgresql-17.6/include",
+        "/nix/store/agsg9qc59dwv8vdjrn7vrlyq8g466bds-curl-8.17.0-dev/include"
       ],
       "defines": ["EXTVERSION=\"0.1\"", "_GNU_SOURCE"],
+      "macFrameworkPath": [
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks"
+      ],
+      "intelliSenseMode": "macos-clang-arm64",
       "cStandard": "c11",
       "cppStandard": "c++17"
     }
