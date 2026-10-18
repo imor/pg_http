@@ -108,11 +108,6 @@ int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
 }
 
 int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {
-  if (max_events <= 0) {
-    errno = EINVAL;
-    return -1;
-  }
-
   return epoll_wait(poller->fd, out, max_events, timeout_ms);
 }
 
