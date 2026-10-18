@@ -121,14 +121,7 @@ int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms
 }
 
 int poller_close(Poller *poller) {
-  int res    = close(poller->fd);
-  poller->fd = -1;
-
-  if (res < 0) {
-    return -1;
-  }
-
-  return 0;
+  return close_fd(&poller->fd);
 }
 
 int poller_event_fd(__attribute__((unused)) const Poller *poller, const PollerEvent *ev) {

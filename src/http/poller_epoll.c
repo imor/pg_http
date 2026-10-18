@@ -20,31 +20,6 @@ int poller_create(Poller *poller) {
   return 0;
 }
 
-int poller_close(Poller *poller) {
-  int res = 0;
-  int err = 0;
-
-  if (poller->timer_fd >= 0) {
-    res              = close(poller->timer_fd);
-    poller->timer_fd = -1;
-    err              = errno;
-  }
-
-  res = close(poller->fd);
-  poller->fd = -1;
-
-  if (res < 0) {
-    return -1;
-  }
-
-  if (res < 0) {
-    errno = err;
-    return -1;
-  }
-
-  return 0;
-}
-
 /*
  * Arms or disarms the timer, see POLLER_EV_TIMER.
  */
@@ -133,6 +108,17 @@ int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms
   }
 
   return n;
+}
+
+int poller_close(Poller *poller) {
+  int res = close_fd(&poller->fd);
+  if (res < 0) return res;
+
+  if (poller->timer_fd >= 0) {
+    return close_fd(&poller->timer_fd);
+  }
+
+  return 0;
 }
 
 int poller_event_fd(const Poller *poller, const PollerEvent *ev) {

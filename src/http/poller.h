@@ -9,6 +9,8 @@
 #  error "No I/O multiplexing API available on this OS"
 #endif
 
+#include <unistd.h>
+
 #ifdef POLLER_USE_EPOLL
 #  include <sys/epoll.h>
 #else
@@ -166,5 +168,20 @@ int poller_event_fd(const Poller *poller, const PollerEvent *ev);
  * Converts the native event kind to the `PollerEventType` enum member.
  */
 uint32_t poller_event_kind(const Poller *poller, const PollerEvent *ev);
+
+/*
+ * Closes an fd and assigns it to -1. Returns 0 on success and -1 on failure.
+ * errno is set on error.
+ */
+static inline int close_fd(int *fd) {
+  int res = close(*fd);
+  *fd     = -1;
+
+  if (res < 0) {
+    return -1;
+  }
+
+  return 0;
+}
 
 #endif /* PG_HTTP_POLLER_H */
