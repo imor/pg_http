@@ -12,7 +12,7 @@
 
 #pragma GCC diagnostic pop
 
-#include "poller.h"
+#include "poller/poller.h"
 
 /*
  * An HTTP client driven by libcurl's multi socket interface. libcurl tells
