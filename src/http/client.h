@@ -8,8 +8,9 @@
 #include <curl/multi.h>
 
 typedef enum {
-  HTTP_CLIENT_OK    = 0,
-  HTTP_CLIENT_ERROR = -1,
+  HTTP_CLIENT_OK           = 0,
+  HTTP_CLIENT_CURL_ERROR   = -1,
+  HTTP_CLIENT_POLLER_ERROR = -2,
 } HttpClientStatus;
 /*
  * An HTTP client that uses libcurl and the Poller to drive
