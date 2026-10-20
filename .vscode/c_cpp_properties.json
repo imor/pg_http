@@ -4,6 +4,10 @@
       "name": "Default",
       "includePath": [
         "${workspaceFolder}/src",
+        "/nix/store/nh8irc10a7gsy22gz47mkh59m12nxxyl-postgresql-17.0/include/server",
+        "/nix/store/nh8irc10a7gsy22gz47mkh59m12nxxyl-postgresql-17.0/include",
+        "/nix/store/nh8irc10a7gsy22gz47mkh59m12nxxyl-postgresql-17.0/include/internal",
+        "/nix/store/ikmdk37frjdblkba3wl3xws2wwgln17x-curl-8.17.0-dev/include",
         "/nix/store/3pv7s3r7c5sm49028v2hvz71iqgfbi61-postgresql-17.6/include/server",
         "/nix/store/3pv7s3r7c5sm49028v2hvz71iqgfbi61-postgresql-17.6/include",
         "/nix/store/agsg9qc59dwv8vdjrn7vrlyq8g466bds-curl-8.17.0-dev/include"
@@ -12,7 +16,6 @@
       "macFrameworkPath": [
         "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks"
       ],
-      "intelliSenseMode": "macos-clang-arm64",
       "cStandard": "c11",
       "cppStandard": "c++17"
     }
