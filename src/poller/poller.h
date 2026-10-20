@@ -18,6 +18,22 @@
 #endif
 
 /*
+ * TODO: Make the API better by hiding incomplete struct declartions
+ * in this header file to avoid leaking implementation details.
+ * Since some structs/enums are defined the same way for both epoll
+ * and kqueue implementations, move them to a poller_common.h file
+ * which is included in both poller_epoll.c and poller_kqueue.c files.
+ * The public interface is then left in the poller.h file to be
+ * included elsewhere in the codebase.
+ */
+
+/*
+ * TODO: Make the error handling better by using specific error codes
+ * to be returned from the poller API instead of using errno which is
+ * global (per-thread) state and can be hard to keep track of.
+ */
+
+/*
  * The main poller struct containing the root file descriptor for the
  * multiplexing API (epoll or kqueue). This must be initialized with a
  * call to `poller_create` and when no longer needed destroyed with
