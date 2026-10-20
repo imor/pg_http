@@ -1,6 +1,6 @@
 #include "worker.h"
 #include "guc.h"
-#include "http/client.h"
+#include "http/client_old.h"
 #include "signals.h"
 
 #include <errno.h>
@@ -50,7 +50,7 @@ static bool wait_for_events(WaitEventSet *set, uint32 main_wait_event) {
 static int main_loop(uint32 main_wait_event) {
   HttpClient client;
 
-  if (http_client_init(&client) < 0) {
+  if (http_client_old_init(&client) < 0) {
     ereport(ERROR, errmsg("pg_http: could not initialize http client"));
   }
 
@@ -75,7 +75,7 @@ static int main_loop(uint32 main_wait_event) {
   }
 
   FreeWaitEventSet(set);
-  http_client_close(&client);
+  http_client_old_close(&client);
 
   // We return with an exit code of 1 to ensure that Postgres
   // restarts the background worker
