@@ -66,6 +66,56 @@ HttpClientStatus http_send(HttpClient *client, __attribute__((unused)) Request *
   return HTTP_CLIENT_OK;
 }
 
+/*
+ * Maximum number of events read from the poller in one `poller_wait` call
+ */
+#define MAX_EVENTS 64
+
+HttpClientStatus http_client_process(HttpClient *client) {
+  PollerEvent events[MAX_EVENTS];
+  int         num_events;
+
+  do {
+    // Poll events without blocking
+    num_events = poller_wait(&client->poller, events, MAX_EVENTS, 0);
+
+    if (num_events < 0) {
+      // On an interrupt we return ok to let the caller retry
+      if (errno == EINTR) return HTTP_CLIENT_OK;
+
+      // Otherwise it's an error
+      return HTTP_CLIENT_POLLER_ERROR;
+    }
+
+    // Now process the events we got back by calling appropriate curl functions
+    for (int i = 0; i < num_events; i++) {
+      uint32_t flags = poller_event_kind(&client->poller, &events[i]);
+
+      // Handle a timer event
+      if (flags & POLLER_EV_TIMER) {
+        if (curl_multi_socket_action(client->multi, CURL_SOCKET_TIMEOUT, 0,
+                                     &client->running_handles) != CURLM_OK) {
+          return HTTP_CLIENT_CURL_ERROR;
+        }
+        continue;
+      }
+
+      // Handle socket I/O events
+      int mask = 0;
+      if (flags & POLLER_EV_READ) mask |= CURL_CSELECT_IN;
+      if (flags & POLLER_EV_WRITE) mask |= CURL_CSELECT_OUT;
+      if (flags & POLLER_EV_ERROR) mask |= CURL_CSELECT_ERR;
+
+      if (curl_multi_socket_action(client->multi, poller_event_fd(&client->poller, &events[i]),
+                                   mask, &client->running_handles) != CURLM_OK) {
+        return HTTP_CLIENT_CURL_ERROR;
+      }
+    }
+  } while (num_events == MAX_EVENTS);
+
+  return HTTP_CLIENT_OK;
+}
+
 HttpClientStatus http_client_close(HttpClient *client) {
   if (curl_multi_cleanup(client->multi) != CURLM_OK) {
     return HTTP_CLIENT_CURL_ERROR;

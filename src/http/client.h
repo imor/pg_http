@@ -30,6 +30,12 @@ HttpClientStatus http_client_init(HttpClient *client);
 HttpClientStatus http_send(HttpClient *client, Request *request);
 
 /*
+ * This function performs the actual I/O required to send/receive
+ * http requests.
+ */
+HttpClientStatus http_client_process(HttpClient *client);
+
+/*
  * Close the `HttpClient`
  */
 HttpClientStatus http_client_close(HttpClient *client);
