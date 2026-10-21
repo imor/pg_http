@@ -1,9 +1,12 @@
 #include "client.h"
 
+#include <stdbool.h>
+
 typedef struct HttpClient {
   // Poller used for I/O and timer events
   Poller poller;
 
+  // Curl's multi handle
   CURLM *multi;
 } HttpClient;
 
@@ -50,22 +53,51 @@ HttpClientStatus http_client_close(HttpClient *client) {
 
 /*
  * libcurl tells us which events it's interested in for a socket and
- * we register those events with the `client->poller`.
+ * we register those events with `client->poller`.
  *
  * This function return 0 on success and -1 on error.
  */
-static int socket_callback(__attribute__((unused)) CURL         *easy,
-                           __attribute__((unused)) curl_socket_t socket,
-                           __attribute__((unused)) int what, __attribute__((unused)) void *clientp,
-                           __attribute__((unused)) void *socketp) {
-  // HttpClient *client = (HttpClient *)clientp;
+static int socket_callback(__attribute__((unused)) CURL *easy, curl_socket_t sockfd, int what,
+                           void *clientp, void *socketp) {
+  HttpClient *client = (HttpClient *)clientp;
 
-  // PollerOp       op;
-  // PollerInterest interest;
+  PollerOp op;
 
-  // if (poller_socket_ctl(&client->poller, op, interest) < 0) {
-  //   return -1;
-  // }
+  bool add    = socketp == NULL;
+  bool remove = what & CURL_POLL_REMOVE;
+
+  if (add) {
+    op = POLLER_OP_ADD;
+  } else if (remove) {
+    op = POLLER_OP_DEL;
+  } else {
+    op = POLLER_OP_MOD;
+  }
+
+  PollerInterest interest = {.fd = sockfd};
+  if (what & CURL_POLL_IN) {
+    interest.new_events |= POLLER_EV_READ;
+  }
+  if (what & CURL_POLL_OUT) {
+    interest.new_events |= POLLER_EV_WRITE;
+  }
+
+  if (op == POLLER_OP_ADD) {
+    interest.old_events = POLLER_EV_NONE;
+  } else {
+    interest.old_events = (uint32_t)(uintptr_t)socketp;
+  }
+
+  if (curl_multi_assign(client->multi, sockfd,
+                        (op == POLLER_OP_ADD || op == POLLER_OP_MOD)
+                            ? (void *)(uintptr_t)interest.new_events
+                            : NULL) != CURLM_OK) {
+    return -1;
+  }
+
+  if (poller_socket_ctl(&client->poller, op, interest) < 0) {
+    return -1;
+  }
 
   return 0;
 }
