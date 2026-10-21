@@ -3,6 +3,7 @@
 
 #include "poller/poller.h"
 #include "request.h"
+#include "response.h"
 
 #include <curl/curl.h>
 #include <curl/multi.h>
@@ -27,13 +28,29 @@ HttpClientStatus http_client_init(HttpClient *client);
 /*
  * Send an HTTP request
  */
-HttpClientStatus http_send(HttpClient *client, Request *request);
+HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request, HttpResponse *response);
 
 /*
  * This function performs the actual I/O required to send/receive
  * http requests.
  */
 HttpClientStatus http_client_process(HttpClient *client);
+
+/*
+ * Type of function callback used to receive completed responses
+ */
+typedef void (*response_callback)(CURLcode code, HttpResponse *response, long status_code);
+
+/*
+ * Get responses which have completed in the response callback
+ */
+HttpClientStatus http_client_get_responses(HttpClient *client, response_callback);
+
+/*
+ * Returns the fd which should be waited to become readable before calling
+ * `http_client_process`.
+ */
+int http_client_fd(HttpClient *client);
 
 /*
  * Close the `HttpClient`

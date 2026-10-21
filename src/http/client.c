@@ -38,19 +38,15 @@ HttpClientStatus http_client_init(HttpClient *client) {
   return register_callbacks(client->multi);
 }
 
-HttpClientStatus http_send(HttpClient *client, __attribute__((unused)) Request *request) {
-  MemoryContext old      = MemoryContextSwitchTo(TopMemoryContext);
-  HttpResponse *response = palloc0(sizeof(HttpResponse));
-  if (http_response_init(response) != HTTP_RESPONSE_OK) {
-    return HTTP_CLIENT_RESPONSE_ERROR;
-    MemoryContextSwitchTo(old);
-  }
-  MemoryContextSwitchTo(old);
-
+HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request,
+                                  HttpResponse *response) {
   if (curl_easy_setopt(response->easy, CURLOPT_URL, request->url) != CURLE_OK) {
     return HTTP_CLIENT_CURL_ERROR;
   }
   if (curl_easy_setopt(response->easy, CURLOPT_TIMEOUT_MS, 10000) != CURLE_OK) {
+    return HTTP_CLIENT_CURL_ERROR;
+  }
+  if (curl_easy_setopt(response->easy, CURLOPT_PRIVATE, response) != CURLE_OK) {
     return HTTP_CLIENT_CURL_ERROR;
   }
 
@@ -114,6 +110,34 @@ HttpClientStatus http_client_process(HttpClient *client) {
   } while (num_events == MAX_EVENTS);
 
   return HTTP_CLIENT_OK;
+}
+
+HttpClientStatus http_client_get_responses(HttpClient *client, response_callback callback) {
+  CURLMsg *message;
+  int      remaining_messages;
+
+  while ((message = curl_multi_info_read(client->multi, &remaining_messages)) != NULL) {
+    if (message->msg != CURLMSG_DONE) continue;
+
+    HttpResponse *response    = NULL;
+    long          status_code = 0;
+
+    if (curl_easy_getinfo(message->easy_handle, CURLINFO_PRIVATE, &response) != CURLE_OK) {
+      return HTTP_CLIENT_CURL_ERROR;
+    }
+
+    if (curl_easy_getinfo(message->easy_handle, CURLINFO_RESPONSE_CODE, &status_code) != CURLE_OK) {
+      return HTTP_CLIENT_CURL_ERROR;
+    }
+
+    callback(message->data.result, response, status_code);
+  }
+
+  return HTTP_CLIENT_OK;
+}
+
+int http_client_fd(HttpClient *client) {
+  return client->poller.fd;
 }
 
 HttpClientStatus http_client_close(HttpClient *client) {

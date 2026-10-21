@@ -1,8 +1,8 @@
 #ifndef PG_HTTP_REQUEST_H
 #define PG_HTTP_REQUEST_H
 
-typedef struct Request {
+typedef struct HttpRequest {
   const char *url;
-} Request;
+} HttpRequest;
 
 #endif /* PG_HTTP_REQUEST_H */
