@@ -5,17 +5,6 @@
 #include <curl/curl.h>
 #include <stdbool.h>
 
-typedef struct HttpClient {
-  // Poller used for I/O and timer events
-  Poller poller;
-
-  // Curl's multi handle
-  CURLM *multi;
-
-  // Number of curl transfers still in progress
-  int running_handles;
-} HttpClient;
-
 static HttpClientStatus register_callbacks(HttpClient *client);
 
 HttpClientStatus http_client_init(HttpClient *client) {
@@ -35,7 +24,7 @@ HttpClientStatus http_client_init(HttpClient *client) {
     return HTTP_CLIENT_CURL_ERROR;
   }
 
-  return register_callbacks(client->multi);
+  return register_callbacks(client);
 }
 
 HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request,
@@ -43,7 +32,7 @@ HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request,
   if (curl_easy_setopt(response->easy, CURLOPT_URL, request->url) != CURLE_OK) {
     return HTTP_CLIENT_CURL_ERROR;
   }
-  if (curl_easy_setopt(response->easy, CURLOPT_TIMEOUT_MS, 10000) != CURLE_OK) {
+  if (curl_easy_setopt(response->easy, CURLOPT_TIMEOUT_MS, 10000L) != CURLE_OK) {
     return HTTP_CLIENT_CURL_ERROR;
   }
   if (curl_easy_setopt(response->easy, CURLOPT_PRIVATE, response) != CURLE_OK) {
@@ -129,6 +118,8 @@ HttpClientStatus http_client_get_responses(HttpClient *client, response_callback
     if (curl_easy_getinfo(message->easy_handle, CURLINFO_RESPONSE_CODE, &status_code) != CURLE_OK) {
       return HTTP_CLIENT_CURL_ERROR;
     }
+
+    curl_multi_remove_handle(client->multi, message->easy_handle);
 
     callback(message->data.result, response, status_code);
   }

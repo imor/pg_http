@@ -18,7 +18,16 @@ typedef enum {
  * An HTTP client that uses libcurl and the Poller to drive
  * the I/O for sending requests and receiving them.
  */
-typedef struct HttpClient HttpClient;
+typedef struct HttpClient {
+  // Poller used for I/O and timer events
+  Poller poller;
+
+  // Curl's multi handle
+  CURLM *multi;
+
+  // Number of curl transfers still in progress
+  int running_handles;
+} HttpClient;
 
 /*
  * Initialize the `HttpClient`.

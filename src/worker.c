@@ -1,6 +1,6 @@
 #include "worker.h"
 #include "guc.h"
-#include "http/client_old.h"
+#include "http/client.h"
 #include "signals.h"
 
 #include <errno.h>
@@ -10,6 +10,19 @@
  * The URL requested on startup, hardcoded for testing purposes.
  */
 #define TEST_URL "http://example.org/"
+
+/*
+ * Called for every request which has completed.
+ */
+static void on_response(CURLcode code, HttpResponse *response, long status_code) {
+  if (code != CURLE_OK) {
+    ereport(WARNING, errmsg("pg_http: request failed: %s", curl_easy_strerror(code)));
+    return;
+  }
+
+  ereport(LOG, errmsg("pg_http: got response with status %ld and %d body bytes", status_code,
+                      response->body.len));
+}
 
 /*
  * Goes to sleep on the main wait event set waiting for the following events:
@@ -50,7 +63,7 @@ static bool wait_for_events(WaitEventSet *set, uint32 main_wait_event) {
 static int main_loop(uint32 main_wait_event) {
   HttpClient client;
 
-  if (http_client_old_init(&client) < 0) {
+  if (http_client_init(&client) != HTTP_CLIENT_OK) {
     ereport(ERROR, errmsg("pg_http: could not initialize http client"));
   }
 
@@ -59,7 +72,14 @@ static int main_loop(uint32 main_wait_event) {
   AddWaitEventToSet(set, WL_EXIT_ON_PM_DEATH, PGINVALID_SOCKET, NULL, NULL);
   AddWaitEventToSet(set, WL_SOCKET_READABLE, http_client_fd(&client), NULL, NULL);
 
-  if (http_client_get(&client, TEST_URL) < 0) {
+  HttpRequest  request = {.url = TEST_URL};
+  HttpResponse response;
+
+  if (http_response_init(&response) != HTTP_RESPONSE_OK) {
+    ereport(ERROR, errmsg("pg_http: could not initialize http response"));
+  }
+
+  if (http_client_send(&client, &request, &response) != HTTP_CLIENT_OK) {
     ereport(WARNING, errmsg("pg_http: could not start request to %s", TEST_URL));
   }
 
@@ -71,11 +91,15 @@ static int main_loop(uint32 main_wait_event) {
     // The poller's root fd is level triggered, so it is safe to only look
     // at it with a zero timeout here. This never blocks.
     pgstat_report_activity(STATE_RUNNING, "pg_http: working");
-    http_client_process(&client);
+    if (http_client_process(&client) != HTTP_CLIENT_OK ||
+        http_client_get_responses(&client, on_response) != HTTP_CLIENT_OK) {
+      ereport(WARNING, errmsg("pg_http: error while processing http requests"));
+    }
   }
 
   FreeWaitEventSet(set);
-  http_client_old_close(&client);
+  http_response_close(&response);
+  http_client_close(&client);
 
   // We return with an exit code of 1 to ensure that Postgres
   // restarts the background worker
