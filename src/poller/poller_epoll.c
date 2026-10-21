@@ -8,21 +8,21 @@
 #  include <time.h>
 #  include <unistd.h>
 
-int poller_create(Poller *poller) {
+PollerStatus poller_create(Poller *poller) {
   // We initialize the epoll fd now
   poller->fd = epoll_create1(EPOLL_CLOEXEC);
 
   if (poller->fd < 0) {
-    return -1;
+    return POLLER_ERROR;
   }
 
   // The timer fd will be initialized lazily when required
   poller->timer_fd = -1;
 
-  return 0;
+  return POLLER_OK;
 }
 
-int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
+PollerStatus poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   switch (op) {
   case POLLER_OP_ADD:
   case POLLER_OP_MOD: {
@@ -30,7 +30,7 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
     if (poller->timer_fd < 0) {
       poller->timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
       if (poller->timer_fd < 0) {
-        return -1;
+        return POLLER_ERROR;
       }
 
       struct epoll_event ev = {0};
@@ -41,7 +41,7 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
         int save_errno = errno;
         close_fd(&poller->timer_fd);
         errno = save_errno;
-        return -1;
+        return POLLER_ERROR;
       }
     }
 
@@ -59,7 +59,7 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
     } else {
       // Negative timeout_ms value is an error
       errno = EINVAL;
-      return -1;
+      return POLLER_ERROR;
     }
 
     return timerfd_settime(poller->timer_fd, flags, &its, NULL);
@@ -72,14 +72,15 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   }
   default: {
     errno = EINVAL;
-    return -1;
+    return POLLER_ERROR;
     break;
   }
   }
-  return 0;
+
+  return POLLER_ERROR;
 }
 
-int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
+PollerStatus poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
   struct epoll_event ev = {0};
   int                cmd;
 
@@ -107,11 +108,11 @@ int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
   return epoll_ctl(poller->fd, cmd, in.fd, &ev);
 }
 
-int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {
+PollerStatus poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {
   return epoll_wait(poller->fd, out, max_events, timeout_ms);
 }
 
-int poller_close(Poller *poller) {
+PollerStatus poller_close(Poller *poller) {
   int res = close_fd(&poller->fd);
   if (res < 0) return res;
 
@@ -119,7 +120,7 @@ int poller_close(Poller *poller) {
     return close_fd(&poller->timer_fd);
   }
 
-  return 0;
+  return POLLER_OK;
 }
 
 int poller_event_fd(const Poller *poller, const PollerEvent *ev) {

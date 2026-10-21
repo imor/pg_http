@@ -58,14 +58,14 @@ static int socket_callback(__attribute__((unused)) CURL         *easy,
                            __attribute__((unused)) curl_socket_t socket,
                            __attribute__((unused)) int what, __attribute__((unused)) void *clientp,
                            __attribute__((unused)) void *socketp) {
-  HttpClient *client = (HttpClient *)clientp;
+  // HttpClient *client = (HttpClient *)clientp;
 
-  PollerOp       op;
-  PollerInterest interest;
+  // PollerOp       op;
+  // PollerInterest interest;
 
-  if (poller_socket_ctl(&client->poller, op, interest) < 0) {
-    return -1;
-  }
+  // if (poller_socket_ctl(&client->poller, op, interest) < 0) {
+  //   return -1;
+  // }
 
   return 0;
 }

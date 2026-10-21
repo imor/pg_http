@@ -5,14 +5,14 @@
 #  include <errno.h>
 #  include <unistd.h>
 
-int poller_create(Poller *poller) {
+PollerStatus poller_create(Poller *poller) {
   poller->fd = kqueue();
 
   if (poller->fd < 0) {
-    return -1;
+    return POLLER_ERROR;
   }
 
-  return 0;
+  return POLLER_OK;
 }
 
 /*
@@ -23,7 +23,7 @@ int poller_create(Poller *poller) {
  */
 #  define TIMER_ID 1
 
-int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
+PollerStatus poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   struct kevent kev;
 
   switch (op) {
@@ -45,7 +45,7 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   }
   default: {
     errno = EINVAL;
-    return -1;
+    return POLLER_ERROR;
     break;
   }
   }
@@ -53,7 +53,7 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms) {
   return kevent(poller->fd, &kev, 1, NULL, 0, NULL);
 }
 
-int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
+PollerStatus poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
   int      fd         = in.fd;
   uint32_t new_events = in.new_events;
   uint32_t old_events = in.old_events;
@@ -97,17 +97,20 @@ int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest in) {
     break;
   }
 
-  default: errno = EINVAL; return -1;
+  default: {
+    errno = EINVAL;
+    return POLLER_ERROR;
+  }
   }
 
   if (n == 0) {
-    return 0;
+    return POLLER_OK;
   }
 
   return kevent(poller->fd, kevs, n, NULL, 0, NULL);
 }
 
-int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {
+PollerStatus poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms) {
   struct timespec  ts;
   struct timespec *tsp = NULL;
 
@@ -120,7 +123,7 @@ int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms
   return kevent(poller->fd, NULL, 0, out, max_events, tsp);
 }
 
-int poller_close(Poller *poller) {
+PollerStatus poller_close(Poller *poller) {
   return close_fd(&poller->fd);
 }
 

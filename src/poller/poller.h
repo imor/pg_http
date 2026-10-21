@@ -18,22 +18,6 @@
 #endif
 
 /*
- * TODO: Make the API better by hiding incomplete struct declartions
- * in this header file to avoid leaking implementation details.
- * Since some structs/enums are defined the same way for both epoll
- * and kqueue implementations, move them to a poller_common.h file
- * which is included in both poller_epoll.c and poller_kqueue.c files.
- * The public interface is then left in the poller.h file to be
- * included elsewhere in the codebase.
- */
-
-/*
- * TODO: Make the error handling better by using specific error codes
- * to be returned from the poller API instead of using errno which is
- * global (per-thread) state and can be hard to keep track of.
- */
-
-/*
  * The main poller struct containing the root file descriptor for the
  * multiplexing API (epoll or kqueue). This must be initialized with a
  * call to `poller_create` and when no longer needed destroyed with
@@ -103,6 +87,17 @@ typedef struct kevent PollerEvent;
 #endif
 
 /*
+ * An enum representing the return code of poller API functions.
+ */
+typedef enum {
+  // Returned on success
+  POLLER_OK = 0,
+
+  // Returned on error
+  POLLER_ERROR = -1,
+} PollerStatus;
+
+/*
  * Poller event types. It is used in `poller_socket_ctl` when registering interest for
  * an fd. `poller_event_kind` can be used to convert from the native event type
  * to it.
@@ -136,7 +131,7 @@ typedef enum {
  * created by the I/O multiplexing API. Returns zero on success and -1 on
  * error. `errno` is set on error.
  */
-int poller_create(Poller *poller);
+PollerStatus poller_create(Poller *poller);
 
 /*
  * Adds, modifies or deletes interest in a socket fd in the poller.
@@ -144,7 +139,7 @@ int poller_create(Poller *poller);
  *
  * Returns zero on success and -1 on error. errno is set on error.
  */
-int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest interest);
+PollerStatus poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest interest);
 
 /*
  * Enables or disables a oneshot timer. The timer is enabled when op is
@@ -154,7 +149,7 @@ int poller_socket_ctl(Poller *poller, PollerOp op, PollerInterest interest);
  *
  * Returns zero on success and -1 on error. errno is set on error.
  */
-int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms);
+PollerStatus poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms);
 
 /*
  * Fills the caller-allocated `out` array of `max_events` items with events
@@ -167,13 +162,13 @@ int poller_timer_ctl(Poller *poller, PollerOp op, int timeout_ms);
  * On success returns the number of items placed in the `out` array.
  * On error returns -1. errno is set on error.
  */
-int poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms);
+PollerStatus poller_wait(Poller *poller, PollerEvent *out, int max_events, int timeout_ms);
 
 /*
  * Closes a poller instance. Returns zero on success and -1 on error.
  * errno is set on error.
  */
-int poller_close(Poller *poller);
+PollerStatus poller_close(Poller *poller);
 
 /*
  * Returns the fd of an event returned by poller_wait, or -1 for the timer.
