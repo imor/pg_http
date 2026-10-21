@@ -6,6 +6,7 @@
 
 #include <c.h>
 #include <fmgr.h>
+#include <lib/stringinfo.h>
 #include <miscadmin.h>
 #include <postmaster/bgworker.h>
 #include <postmaster/interrupt.h>
@@ -15,6 +16,7 @@
 #include <storage/shmem.h>
 #include <tcop/tcopprot.h>
 #include <utils/backend_status.h>
+#include <utils/memutils.h>
 #include <utils/wait_event.h>
 
 #endif /* PG_PRELUDE_H */

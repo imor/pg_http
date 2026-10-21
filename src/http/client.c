@@ -1,5 +1,8 @@
 #include "client.h"
+#include "pg_prelude.h"
+#include "response.h"
 
+#include <curl/curl.h>
 #include <stdbool.h>
 
 typedef struct HttpClient {
@@ -8,6 +11,9 @@ typedef struct HttpClient {
 
   // Curl's multi handle
   CURLM *multi;
+
+  // Number of curl transfers still in progress
+  int running_handles;
 } HttpClient;
 
 static HttpClientStatus register_callbacks(HttpClient *client);
@@ -32,8 +38,31 @@ HttpClientStatus http_client_init(HttpClient *client) {
   return register_callbacks(client->multi);
 }
 
-HttpClientStatus http_send(__attribute__((unused)) HttpClient *client,
-                           __attribute__((unused)) Request    *requst) {
+HttpClientStatus http_send(HttpClient *client, __attribute__((unused)) Request *request) {
+  MemoryContext old      = MemoryContextSwitchTo(TopMemoryContext);
+  HttpResponse *response = palloc0(sizeof(HttpResponse));
+  if (http_response_init(response) != HTTP_RESPONSE_OK) {
+    return HTTP_CLIENT_RESPONSE_ERROR;
+    MemoryContextSwitchTo(old);
+  }
+  MemoryContextSwitchTo(old);
+
+  if (curl_easy_setopt(response->easy, CURLOPT_URL, request->url) != CURLE_OK) {
+    return HTTP_CLIENT_CURL_ERROR;
+  }
+  if (curl_easy_setopt(response->easy, CURLOPT_TIMEOUT_MS, 10000) != CURLE_OK) {
+    return HTTP_CLIENT_CURL_ERROR;
+  }
+
+  if (curl_multi_add_handle(client->multi, response->easy) != CURLM_OK) {
+    return HTTP_CLIENT_CURL_ERROR;
+  }
+
+  if (curl_multi_socket_action(client->multi, CURL_SOCKET_TIMEOUT, 0, &client->running_handles) !=
+      CURLM_OK) {
+    return HTTP_CLIENT_CURL_ERROR;
+  }
+
   return HTTP_CLIENT_OK;
 }
 
