@@ -5,8 +5,15 @@
 
 #include <curl/curl.h>
 
+/*
+ * And HTTP response. Contains the easy CURL handle
+ * and the response body.
+ */
 typedef struct HttpResponse {
-  CURL          *easy;
+  // CURL's easy handle for this HTTP transfer
+  CURL *easy;
+
+  // The response body
   StringInfoData body;
 } HttpResponse;
 
