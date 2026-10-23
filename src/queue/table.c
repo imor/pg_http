@@ -29,28 +29,24 @@ static const char *retire_query      = "\
 ";
 
 /*
- * Prepares and saves a plan for the given sql source and returns the
- * saved plan
+ * Prepares and keeps a plan for the given sql source and returns the
+ * kept plan
  */
-static SPIPlanPtr prepare_and_save_plan(const char *sql, int nargs, Oid *argtypes) {
+static SPIPlanPtr prepare_and_keep_plan(const char *sql, int nargs, Oid *argtypes) {
   SPIPlanPtr prepared = SPI_prepare(sql, nargs, argtypes);
   if (prepared == NULL)
     ereport(ERROR, errmsg("SPI_prepare failed: %s", SPI_result_code_string(SPI_result)));
 
-  SPIPlanPtr saved = SPI_saveplan(prepared);
-  if (saved == NULL)
-    ereport(ERROR, errmsg("SPI_saveplan failed: %s", SPI_result_code_string(SPI_result)));
-
-  int ret_code = SPI_freeplan(prepared);
+  int ret_code = SPI_keepplan(prepared);
   if (ret_code != 0)
-    ereport(ERROR, errmsg("SPI_freeplan error: %s", SPI_result_code_string(ret_code)));
+    ereport(ERROR, errmsg("SPI_keepplan failed: %s", SPI_result_code_string(ret_code)));
 
-  return saved;
+  return prepared;
 }
 
 TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_requests) {
   if (dequeue_query_plan == NULL) {
-    dequeue_query_plan = prepare_and_save_plan(dequeue_query, 1, (Oid[]){INT4OID});
+    dequeue_query_plan = prepare_and_keep_plan(dequeue_query, 1, (Oid[]){INT4OID});
   }
 
   int ret_code =
@@ -95,7 +91,7 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
 
 TableQueueStatus reset_in_flight(void) {
   if (reset_query_plan == NULL) {
-    reset_query_plan = prepare_and_save_plan(reset_query, 0, NULL);
+    reset_query_plan = prepare_and_keep_plan(reset_query, 0, NULL);
   }
 
   int ret_code = SPI_execute_plan(reset_query_plan, NULL, NULL, false, 0);
@@ -109,7 +105,7 @@ TableQueueStatus reset_in_flight(void) {
 
 TableQueueStatus retire(HttpResponse *responses, int num_responses) {
   if (retire_query_plan == NULL) {
-    retire_query_plan = prepare_and_save_plan(retire_query, 1, (Oid[]){INT8OID});
+    retire_query_plan = prepare_and_keep_plan(retire_query, 1, (Oid[]){INT8OID});
   }
 
   for (int i = 0; i < num_responses; i++) {
