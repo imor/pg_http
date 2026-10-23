@@ -11,7 +11,6 @@ static const char *dequeue_query      = "\
       where not in_flight \
       order by id \
       limit $1 \
-      for update skip locked \
     ) \
     returning id, url \
 ";
