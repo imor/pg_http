@@ -5,5 +5,6 @@ create schema if not exists http;
 
 create table http.requests(
     id bigint generated always as identity primary key,
-    url text not null
+    url text not null,
+    in_flight boolean not null default false
 );

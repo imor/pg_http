@@ -10,6 +10,9 @@
  * and the response body.
  */
 typedef struct HttpResponse {
+  // The id of the request in the queue table which this response is for
+  int64 request_id;
+
   // CURL's easy handle for this HTTP transfer
   CURL *easy;
 

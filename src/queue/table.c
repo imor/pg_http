@@ -3,9 +3,30 @@
 
 static SPIPlanPtr  dequeue_query_plan = NULL;
 static const char *dequeue_query      = "\
-    select id, url \
-    from http.requests \
-    limit $1 \
+    update http.requests \
+    set in_flight = true \
+    where id in ( \
+      select id \
+      from http.requests \
+      where not in_flight \
+      order by id \
+      limit $1 \
+      for update skip locked \
+    ) \
+    returning id, url \
+";
+
+static SPIPlanPtr  reset_query_plan = NULL;
+static const char *reset_query      = "\
+    update http.requests \
+    set in_flight = false \
+    where in_flight \
+";
+
+static SPIPlanPtr  retire_query_plan = NULL;
+static const char *retire_query      = "\
+    delete from http.requests \
+    where id = $1 \
 ";
 
 /*
@@ -36,7 +57,7 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
   int ret_code =
       SPI_execute_plan(dequeue_query_plan, (Datum[]){Int32GetDatum(num_entries)}, NULL, false, 0);
 
-  if (ret_code != SPI_OK_SELECT) {
+  if (ret_code != SPI_OK_UPDATE_RETURNING) {
     ereport(ERROR,
             errmsg("error reading from http.requests: %s", SPI_result_code_string(ret_code)));
   }
@@ -73,8 +94,34 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
   return HTTP_TABLE_QUEUE_OK;
 }
 
-TableQueueStatus retire(__attribute__((unused)) HttpResponse *responses,
-                        __attribute__((unused)) int           num_responses) {
+TableQueueStatus reset_in_flight(void) {
+  if (reset_query_plan == NULL) {
+    reset_query_plan = prepare_and_save_plan(reset_query, 0, NULL);
+  }
+
+  int ret_code = SPI_execute_plan(reset_query_plan, NULL, NULL, false, 0);
+  if (ret_code != SPI_OK_UPDATE) {
+    ereport(ERROR,
+            errmsg("error resetting http.requests: %s", SPI_result_code_string(ret_code)));
+  }
+
+  return HTTP_TABLE_QUEUE_OK;
+}
+
+TableQueueStatus retire(HttpResponse *responses, int num_responses) {
+  if (retire_query_plan == NULL) {
+    retire_query_plan = prepare_and_save_plan(retire_query, 1, (Oid[]){INT8OID});
+  }
+
+  for (int i = 0; i < num_responses; i++) {
+    int ret_code = SPI_execute_plan(
+        retire_query_plan, (Datum[]){Int64GetDatum(responses[i].request_id)}, NULL, false, 0);
+    if (ret_code != SPI_OK_DELETE) {
+      ereport(ERROR,
+              errmsg("error deleting from http.requests: %s", SPI_result_code_string(ret_code)));
+    }
+  }
+
   return HTTP_TABLE_QUEUE_OK;
 }
 

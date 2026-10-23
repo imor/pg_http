@@ -13,6 +13,40 @@
 #define BATCH_SIZE 100
 
 /*
+ * Runs `fn` inside a transaction with an SPI connection and an active snapshot.
+ */
+static void run_in_transaction(void (*fn)(void *), void *arg) {
+  SetCurrentStatementStartTimestamp();
+  StartTransactionCommand();
+  PushActiveSnapshot(GetTransactionSnapshot());
+
+  int ret_code = SPI_connect();
+  if (ret_code != SPI_OK_CONNECT)
+    ereport(ERROR, errmsg(EXTNAME ": SPI_connect failed: %s", SPI_result_code_string(ret_code)));
+
+  fn(arg);
+
+  ret_code = SPI_finish();
+  if (ret_code != SPI_OK_FINISH)
+    ereport(ERROR, errmsg(EXTNAME ": SPI_finish failed: %s", SPI_result_code_string(ret_code)));
+
+  PopActiveSnapshot();
+  CommitTransactionCommand();
+}
+
+static void do_retire(void *arg) {
+  if (retire((HttpResponse *)arg, 1) != HTTP_TABLE_QUEUE_OK) {
+    ereport(ERROR, errmsg(EXTNAME ": could not retire request"));
+  }
+}
+
+static void do_reset_in_flight(__attribute__((unused)) void *arg) {
+  if (reset_in_flight() != HTTP_TABLE_QUEUE_OK) {
+    ereport(ERROR, errmsg(EXTNAME ": could not reset in flight requests"));
+  }
+}
+
+/*
  * Called for every request which has completed.
  */
 static void on_response(CURLcode code, HttpResponse *response, long status_code) {
@@ -21,6 +55,9 @@ static void on_response(CURLcode code, HttpResponse *response, long status_code)
   } else {
     ereport(LOG, errmsg(EXTNAME ": got response with status %ld and %d body bytes", status_code,
                         response->body.len));
+
+    // The request has been answered so it is removed from the queue
+    run_in_transaction(do_retire, response);
   }
 
   // Responses are allocated in send_batch and owned by us once completed
@@ -30,31 +67,57 @@ static void on_response(CURLcode code, HttpResponse *response, long status_code)
 
 /*
  * Reads a batch of requests from the queue table and starts sending them.
+ *
+ * The transaction is only held open while reading from the table. The
+ * requests are allocated in a separate memory context so they outlive it.
  */
 static void send_batch(HttpClient *client) {
-  StartTransactionCommand();
-  SPI_connect();
-  PushActiveSnapshot(GetTransactionSnapshot());
+  // The Internal variant avoids the GNU statement expression in the macro
+  MemoryContext batch_context =
+      AllocSetContextCreateInternal(TopMemoryContext, EXTNAME " batch", ALLOCSET_DEFAULT_MINSIZE,
+                                    ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE);
 
   HttpRequest *requests     = NULL;
   int          num_requests = 0;
+
+  SetCurrentStatementStartTimestamp();
+  StartTransactionCommand();
+  PushActiveSnapshot(GetTransactionSnapshot());
+
+  // SPI_palloc allocates in the context current at SPI_connect, so connect
+  // while in the batch context to make the requests survive the commit.
+  MemoryContext old_context = MemoryContextSwitchTo(batch_context);
+
+  int ret_code = SPI_connect();
+  if (ret_code != SPI_OK_CONNECT)
+    ereport(ERROR, errmsg(EXTNAME ": SPI_connect failed: %s", SPI_result_code_string(ret_code)));
 
   if (dequeue(BATCH_SIZE, &requests, &num_requests) != HTTP_TABLE_QUEUE_OK) {
     ereport(ERROR, errmsg(EXTNAME ": could not read requests from the queue"));
   }
 
+  ret_code = SPI_finish();
+  if (ret_code != SPI_OK_FINISH)
+    ereport(ERROR, errmsg(EXTNAME ": SPI_finish failed: %s", SPI_result_code_string(ret_code)));
+
+  MemoryContextSwitchTo(old_context);
+
+  PopActiveSnapshot();
+  CommitTransactionCommand();
+
   for (int i = 0; i < num_requests; i++) {
-    // Responses outlive this transaction so they go in a long lived context
+    // Responses outlive this function so they go in a long lived context
     MemoryContext      old      = MemoryContextSwitchTo(TopMemoryContext);
     HttpResponse      *response = palloc(sizeof(HttpResponse));
     HttpResponseStatus status   = http_response_init(response);
+    response->request_id        = requests[i].id;
     MemoryContextSwitchTo(old);
 
     if (status != HTTP_RESPONSE_OK) {
       ereport(ERROR, errmsg(EXTNAME ": could not initialize http response"));
     }
 
-    // curl copies the url, so it is safe for requests to die with the transaction
+    // curl copies the url, so requests can be freed after this loop
     if (http_client_send(client, &requests[i], response) != HTTP_CLIENT_OK) {
       ereport(WARNING, errmsg(EXTNAME ": could not start request to %s", requests[i].url));
       http_response_close(response);
@@ -62,9 +125,7 @@ static void send_batch(HttpClient *client) {
     }
   }
 
-  SPI_finish();
-  PopActiveSnapshot();
-  CommitTransactionCommand();
+  MemoryContextDelete(batch_context);
 }
 
 /*
@@ -104,7 +165,7 @@ static bool wait_for_events(WaitEventSet *set, uint32 main_wait_event) {
  * Returns true if this extension has been created, false otherwise
  */
 static bool extension_created(void) {
-  // Catalog lookups need a transaction (and its resource owner)
+  SetCurrentStatementStartTimestamp();
   StartTransactionCommand();
 
   Oid  extension_oid     = get_extension_oid(EXTNAME, true);
@@ -132,6 +193,8 @@ static int main_loop(uint32 main_wait_event) {
   AddWaitEventToSet(set, WL_EXIT_ON_PM_DEATH, PGINVALID_SOCKET, NULL, NULL);
   AddWaitEventToSet(set, WL_SOCKET_READABLE, http_client_fd(&client), NULL, NULL);
 
+  bool in_flight_reset = false;
+
   while (true) {
     if (wait_for_events(set, main_wait_event)) {
       break;
@@ -141,6 +204,12 @@ static int main_loop(uint32 main_wait_event) {
 
     if (!extension_created()) {
       continue;
+    }
+
+    // Requests which were in flight when the worker last stopped are retried
+    if (!in_flight_reset) {
+      run_in_transaction(do_reset_in_flight, NULL);
+      in_flight_reset = true;
     }
 
     send_batch(&client);
