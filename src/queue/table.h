@@ -13,8 +13,12 @@ typedef enum {
  * Dequeue at most `num_entries` from the request queue and return them in
  * the `requests` array. `num_requests` will contain the actual number of
  * entries which can be less than or equal to `num_entries`.
+ *
+ * The caller must have connected to SPI with and `SPI_connect` call.
+ * The `requests` array will be allocated in the memory context active
+ * before connecting to SPI.
  */
-TableQueueStatus dequeue(int num_entries, HttpRequest *requests, int *num_requests);
+TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_requests);
 
 /*
  * Retire responses in the `responses` array by saving their results.
