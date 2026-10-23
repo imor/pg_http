@@ -52,8 +52,8 @@ $(EXTNAME).control: $(EXTNAME).control.in
 	sed "s/@EXTNAME@/$(EXTNAME)/g; s/@EXTVERSION@/$(EXTVERSION)/g" $< > $@
 
 $(BUILD_DIR)/.gitignore: $(EXTNAME).control $(DATA)
-	mkdir -p $(BUILD_DIR)/EXTNAME
-	cp $(EXTNAME).control $(DATA) $(BUILD_DIR)/EXTNAME
+	mkdir -p $(BUILD_DIR)/extension
+	cp $(EXTNAME).control $(DATA) $(BUILD_DIR)/extension
 	echo "*" > $(BUILD_DIR)/.gitignore
 
 $(BUILD_DIR)/%.o: src/%.c $(HEADERS) $(BUILD_DIR)/.gitignore
