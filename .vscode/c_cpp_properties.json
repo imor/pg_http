@@ -12,7 +12,7 @@
         "/nix/store/3pv7s3r7c5sm49028v2hvz71iqgfbi61-postgresql-17.6/include",
         "/nix/store/agsg9qc59dwv8vdjrn7vrlyq8g466bds-curl-8.17.0-dev/include"
       ],
-      "defines": ["EXTVERSION=\"0.1\"", "_GNU_SOURCE"],
+      "defines": ["EXTNAME=\"pg_http\"", "EXTVERSION=\"0.1\""],
       "macFrameworkPath": [
         "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks"
       ],

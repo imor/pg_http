@@ -34,7 +34,7 @@ static void shmem_init(void) {
   LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
 
   worker_shared_state =
-      ShmemInitStruct("pg_http worker shared state", sizeof(WorkerSharedState), &found);
+      ShmemInitStruct(EXTNAME " worker shared state", sizeof(WorkerSharedState), &found);
 
   if (!found) {
     init_worker_shared_state(worker_shared_state);

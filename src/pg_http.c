@@ -24,8 +24,8 @@ void _PG_init(void) {
 
   // Ensure that pg_http is configured in shared_preload_libraries
   if (!process_shared_preload_libraries_in_progress) {
-    ereport(ERROR, errmsg("pg_http is not in shared_preload_libraries"),
-            errhint("Add pg_http to the shared_preload_libraries GUC in postgresql.conf."));
+    ereport(ERROR, errmsg(EXTNAME " is not in shared_preload_libraries"),
+            errhint("Add " EXTNAME " to the shared_preload_libraries GUC in postgresql.conf."));
   }
 
   // Register background worker to run after recovery finishes with
@@ -34,10 +34,10 @@ void _PG_init(void) {
   RegisterBackgroundWorker(&(BackgroundWorker){
     .bgw_flags         = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION,
     .bgw_start_time    = BgWorkerStart_RecoveryFinished,
-    .bgw_library_name  = "pg_http",
-    .bgw_function_name = "pg_http_main",
-    .bgw_name          = "pg_http " EXTVERSION " worker",
-    .bgw_type          = "pg_http worker",
+    .bgw_library_name  = EXTNAME,
+    .bgw_function_name = EXTNAME "_main",
+    .bgw_name          = EXTNAME " " EXTVERSION " worker",
+    .bgw_type          = EXTNAME " worker",
     .bgw_restart_time  = 1,
   });
 

@@ -18,13 +18,13 @@ ifeq ($(CC),gcc)
   endif
 endif
 
-EXTENSION = pg_http
+EXTNAME = pg_http
 EXTVERSION = 0.1
 
-DATA = $(sort $(wildcard sql/*--*.sql) sql/$(EXTENSION)--$(EXTVERSION).sql)
+DATA = $(sort $(wildcard sql/*--*.sql) sql/$(EXTNAME)--$(EXTVERSION).sql)
 
-EXTRA_CLEAN = sql/$(EXTENSION)--$(EXTVERSION).sql $(EXTENSION).control
-MODULE_big = $(EXTENSION)
+EXTRA_CLEAN = sql/$(EXTNAME)--$(EXTVERSION).sql $(EXTNAME).control
+MODULE_big = $(EXTNAME)
 HEADERS = $(shell find src -name '*.h')
 SOURCES = $(shell find src -name '*.c')
 
@@ -37,28 +37,28 @@ SHLIB_LINK = -lcurl
 PG_CONFIG = pg_config
 
 # treat PostgreSQL headers as system headers so the strict warnings only apply to our code
-PG_CPPFLAGS = -Isrc -isystem $(shell $(PG_CONFIG) --includedir-server) -DEXTVERSION=\"$(EXTVERSION)\"
+PG_CPPFLAGS = -Isrc -isystem $(shell $(PG_CONFIG) --includedir-server) -DEXTNAME=\"$(EXTNAME)\" -DEXTVERSION=\"$(EXTVERSION)\"
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
 # `xpg build` sets BUILD_DIR and expects the library and extension files there
-build: $(BUILD_DIR)/$(EXTENSION)$(DLSUFFIX) $(EXTENSION).control $(DATA)
+build: $(BUILD_DIR)/$(EXTNAME)$(DLSUFFIX) $(EXTNAME).control $(DATA)
 
-sql/$(EXTENSION)--$(EXTVERSION).sql: sql/$(EXTENSION).sql
+sql/$(EXTNAME)--$(EXTVERSION).sql: sql/$(EXTNAME).sql
 	cp $< $@
 
-$(EXTENSION).control: $(EXTENSION).control.in
-	sed "s/@EXTVERSION@/$(EXTVERSION)/g" $< > $@
+$(EXTNAME).control: $(EXTNAME).control.in
+	sed "s/@EXTNAME@/$(EXTNAME)/g; s/@EXTVERSION@/$(EXTVERSION)/g" $< > $@
 
-$(BUILD_DIR)/.gitignore: $(EXTENSION).control $(DATA)
-	mkdir -p $(BUILD_DIR)/extension
-	cp $(EXTENSION).control $(DATA) $(BUILD_DIR)/extension
+$(BUILD_DIR)/.gitignore: $(EXTNAME).control $(DATA)
+	mkdir -p $(BUILD_DIR)/EXTNAME
+	cp $(EXTNAME).control $(DATA) $(BUILD_DIR)/EXTNAME
 	echo "*" > $(BUILD_DIR)/.gitignore
 
 $(BUILD_DIR)/%.o: src/%.c $(HEADERS) $(BUILD_DIR)/.gitignore
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/$(EXTENSION)$(DLSUFFIX): $(EXTENSION)$(DLSUFFIX)
+$(BUILD_DIR)/$(EXTNAME)$(DLSUFFIX): $(EXTNAME)$(DLSUFFIX)
 	mv $? $@

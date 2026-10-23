@@ -16,11 +16,11 @@
  */
 static void on_response(CURLcode code, HttpResponse *response, long status_code) {
   if (code != CURLE_OK) {
-    ereport(WARNING, errmsg("pg_http: request failed: %s", curl_easy_strerror(code)));
+    ereport(WARNING, errmsg(EXTNAME ": request failed: %s", curl_easy_strerror(code)));
     return;
   }
 
-  ereport(LOG, errmsg("pg_http: got response with status %ld and %d body bytes", status_code,
+  ereport(LOG, errmsg(EXTNAME ": got response with status %ld and %d body bytes", status_code,
                       response->body.len));
 }
 
@@ -45,7 +45,7 @@ static bool wait_for_events(WaitEventSet *set, uint32 main_wait_event) {
   CHECK_FOR_INTERRUPTS();
 
   if (termination_requested) {
-    pgstat_report_activity(STATE_RUNNING, "pg_http: exiting");
+    pgstat_report_activity(STATE_RUNNING, EXTNAME ": exiting");
     return true;
   }
 
@@ -64,7 +64,7 @@ static int main_loop(uint32 main_wait_event) {
   HttpClient client;
 
   if (http_client_init(&client) != HTTP_CLIENT_OK) {
-    ereport(ERROR, errmsg("pg_http: could not initialize http client"));
+    ereport(ERROR, errmsg(EXTNAME ": could not initialize http client"));
   }
 
   WaitEventSet *set = CreateWaitEventSet(NULL, 3);
@@ -76,11 +76,11 @@ static int main_loop(uint32 main_wait_event) {
   HttpResponse response;
 
   if (http_response_init(&response) != HTTP_RESPONSE_OK) {
-    ereport(ERROR, errmsg("pg_http: could not initialize http response"));
+    ereport(ERROR, errmsg(EXTNAME ": could not initialize http response"));
   }
 
   if (http_client_send(&client, &request, &response) != HTTP_CLIENT_OK) {
-    ereport(WARNING, errmsg("pg_http: could not start request to %s", TEST_URL));
+    ereport(WARNING, errmsg(EXTNAME ": could not start request to %s", TEST_URL));
   }
 
   while (true) {
@@ -90,10 +90,10 @@ static int main_loop(uint32 main_wait_event) {
 
     // The poller's root fd is level triggered, so it is safe to only look
     // at it with a zero timeout here. This never blocks.
-    pgstat_report_activity(STATE_RUNNING, "pg_http: working");
+    pgstat_report_activity(STATE_RUNNING, EXTNAME ": working");
     if (http_client_process(&client) != HTTP_CLIENT_OK ||
         http_client_get_responses(&client, on_response) != HTTP_CLIENT_OK) {
-      ereport(WARNING, errmsg("pg_http: error while processing http requests"));
+      ereport(WARNING, errmsg(EXTNAME ": error while processing http requests"));
     }
   }
 
@@ -110,7 +110,7 @@ static int main_loop(uint32 main_wait_event) {
  * The main entry point for the pg_http background worker.
  */
 void pg_http_main(__attribute__((unused)) Datum main_arg) {
-  ereport(LOG, errmsg("inside pg_http_main function"));
+  ereport(LOG, errmsg("inside " EXTNAME "_main function"));
 
   setup_signals();
 
@@ -118,16 +118,16 @@ void pg_http_main(__attribute__((unused)) Datum main_arg) {
   BackgroundWorkerInitializeConnection(guc_database_name, guc_username, 0);
 
   // Set application_name column in pg_stat_activity view
-  pgstat_report_appname("pg_http");
+  pgstat_report_appname(EXTNAME);
 
   // Set state, state_change, query, and query_start fields in pg_stat_activity view
-  pgstat_report_activity(STATE_RUNNING, "pg_http: initializing");
+  pgstat_report_activity(STATE_RUNNING, EXTNAME ": initializing");
 
   uint32 main_wait_event = WaitEventExtensionNew("PgHttpMain");
 
   int code = main_loop(main_wait_event);
 
-  ereport(LOG, errmsg("exiting pg_http_main function"));
+  ereport(LOG, errmsg("exiting " EXTNAME "_main function"));
 
   proc_exit(code);
 }

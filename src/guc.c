@@ -5,10 +5,10 @@ char *guc_database_name;
 char *guc_username;
 
 void register_gucs(void) {
-  DefineCustomStringVariable("pg_http.database_name",
+  DefineCustomStringVariable(EXTNAME ".database_name",
                              "Database to which background worker will connect", NULL,
                              &guc_database_name, "postgres", PGC_SU_BACKEND, 0, NULL, NULL, NULL);
 
-  DefineCustomStringVariable("pg_http.username", "User as which background worker will connect",
+  DefineCustomStringVariable(EXTNAME ".username", "User as which background worker will connect",
                              NULL, &guc_username, NULL, PGC_SU_BACKEND, 0, NULL, NULL, NULL);
 }
