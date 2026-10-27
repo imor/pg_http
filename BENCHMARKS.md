@@ -89,6 +89,43 @@ sleep.
 | 400 | 4.231s | 2,364 | 10000 | 0 | 0.80 | 37 |
 | 800 | 2.863s | 3,493 | 10000 | 0 | 0.81 | 43 |
 
+## Comparison with pg_rest
+
+pg_rest (`../../rust/pg_rest`, Rust with tokio and reqwest) run through the same `nix/loadtest.sh`
+(extended to know pg_rest's `rest.*` tables), against the same nginx and PG 17.0, single runs.
+pg_rest was built with `cargo pgrx package` against that PG. It has no `batch_size`: it always
+allows 1000 requests in flight, commits responses in buckets of 100 or after 50 ms, and uses 2
+tokio worker threads.
+
+### Fast requests
+
+| Variant | Requests | batch_size | time_taken | Throughput (req/s) | Worker CPU s | Max RSS MB |
+| --- | --- | --- | --- | --- | --- | --- |
+| pg_http | 10000 | 200 | 0.769s | 13,001 | 0.64 | 39 |
+| pg_rest | 10000 | n/a | 0.285s | 35,085 | 0.46 | 54 |
+| pg_http | 20000 | 400 | 1.787s | 11,192 | 1.45 | 56 |
+| pg_rest | 20000 | n/a | 0.444s | 45,000 | 1.37 | 90 |
+| pg_http | 40000 | 800 | 4.111s | 9,730 | 3.71 | 97 |
+| pg_rest | 40000 | n/a | 1.110s | 36,036 | 3.25 | 144 |
+| pg_http | 40000 | 1000 | 4.347s | 9,201 | 3.84 | 98 |
+
+### Slow requests (10000 requests, 2s delay, pg_http `batch_size=1000`)
+
+| Slow share | Variant | time_taken | Worker CPU s | Max RSS MB |
+| --- | --- | --- | --- | --- |
+| 1% | pg_http | 3.092s | 1.01 | 46 |
+| 1% | pg_rest | 2.245s | 1.32 | 111 |
+| 5% | pg_http | 2.999s | 0.95 | 46 |
+| 5% | pg_rest | 2.249s | 2.44 | 184 |
+
+* pg_rest is 2.7x to 3.7x faster on fast requests, also against pg_http at `batch_size=1000`,
+  so the in-flight limit does not explain the gap.
+* CPU time is similar (pg_rest 5% to 30% lower on fast requests). pg_rest peaks at about 1.4x to
+  1.5x the RSS of pg_http.
+* With slow requests pg_rest finishes in about one slow-request time, pg_http about 0.8s later.
+  pg_rest's CPU and RSS grow with the slow share (2.6x the CPU and 4x the RSS of pg_http at 5%).
+  Neither was investigated.
+
 ## Reading the results
 
 * With fast requests pg_net takes about `requests / batch_size` seconds (50 batches, 50 to 53s)
