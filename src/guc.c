@@ -74,6 +74,17 @@ void register_gucs(void) {
                           NULL);
 
   DefineCustomIntVariable(
+      EXTNAME ".retire_batch_size",
+      "number of finished requests which make the worker save their responses",
+      "0 means half of batch_size", &guc_retire_batch_size, 0, 0, PG_INT16_MAX, PGC_SIGHUP, 0, NULL,
+      NULL, NULL);
+
+  DefineCustomIntVariable(EXTNAME ".retire_timeout_ms",
+                          "maximum time a finished request waits before its response is saved",
+                          NULL, &guc_retire_timeout_ms, 100, 0, PG_INT32_MAX, PGC_SIGHUP, 0, NULL,
+                          NULL, NULL);
+
+  DefineCustomIntVariable(
       EXTNAME ".max_timeout_ms", "upper bound for the timeout_milliseconds of a request", NULL,
       &guc_max_timeout_ms, 600000, 1, PG_INT32_MAX, PGC_SUSET, 0, NULL, NULL, NULL);
 }

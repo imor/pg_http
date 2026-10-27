@@ -46,19 +46,22 @@ Columns are `requests / batch_size`.
 
 | Setting | time_taken | Throughput (req/s) | Successes | Failures | Worker CPU s | Max RSS MB |
 | --- | --- | --- | --- | --- | --- | --- |
-| `retire_timeout_ms=10` | 3.938s | 10,157 | 40000 | 0 | 3.57 | 95 |
-| `retire_timeout_ms=50` | 3.996s | 10,010 | 40000 | 0 | 3.50 | 94 |
-| `retire_timeout_ms=100` (default) | 3.951s | 10,124 | 40000 | 0 | 3.42 | 93 |
-| `retire_timeout_ms=500` | 3.970s | 10,076 | 40000 | 0 | 3.52 | 94 |
-| `retire_batch_size=25` | 3.939s | 10,155 | 40000 | 0 | 3.55 | 95 |
-| `retire_batch_size=100` | 4.087s | 9,787 | 40000 | 0 | 3.71 | 97 |
-| `retire_batch_size=400` (default, = 800 / 2) | 3.943s | 10,145 | 40000 | 0 | 3.57 | 96 |
-| `batch_size=100` | 3.304s | 12,107 | 40000 | 0 | 2.82 | 86 |
-| `batch_size=400` | 3.589s | 11,145 | 40000 | 0 | 3.01 | 87 |
-| `batch_size=1600` | 5.090s | 7,859 | 40000 | 0 | 4.44 | 106 |
+| `retire_timeout_ms=0` (retire as soon as anything is pending) | 4.176s | 9,578 | 40000 | 0 | 3.74 | 96 |
+| `retire_timeout_ms=10` | 4.064s | 9,844 | 40000 | 0 | 3.62 | 96 |
+| `retire_timeout_ms=50` | 4.167s | 9,598 | 40000 | 0 | 3.53 | 93 |
+| `retire_timeout_ms=100` (default) | 4.044s | 9,892 | 40000 | 0 | 3.46 | 93 |
+| `retire_timeout_ms=500` | 4.066s | 9,837 | 40000 | 0 | 3.45 | 92 |
+| `retire_batch_size=25` | 4.062s | 9,847 | 40000 | 0 | 3.46 | 93 |
+| `retire_batch_size=100` | 4.077s | 9,812 | 40000 | 0 | 3.69 | 97 |
+| `retire_batch_size=400` (default, = 800 / 2) | 4.069s | 9,832 | 40000 | 0 | 3.47 | 93 |
+| `batch_size=100` | 3.422s | 11,688 | 40000 | 0 | 2.76 | 83 |
+| `batch_size=400` | 3.673s | 10,890 | 40000 | 0 | 3.16 | 88 |
+| `batch_size=1600` | 4.973s | 8,044 | 40000 | 0 | 4.49 | 106 |
 
-For fast requests the worker is CPU bound in libcurl, so retire settings make no difference, and a
-very large `batch_size` is slower.
+For fast requests the worker is CPU bound in libcurl, so the retire settings make little
+difference: the runs agree within about 3% in time, which is run to run noise. The only visible
+effect is a few percent more CPU with `retire_timeout_ms=0` and `retire_batch_size=100`. A very
+large `batch_size` is slower, a small one a bit faster.
 
 ## Slow requests
 
