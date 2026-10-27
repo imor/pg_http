@@ -71,8 +71,7 @@ Datum worker_restart(__attribute__((unused)) PG_FUNCTION_ARGS) {
   // Reload the config so the new worker sees any pending ALTER SYSTEM changes
   bool result = DatumGetBool(DirectFunctionCall1(pg_reload_conf, (Datum)0));
 
-  pg_atomic_write_u32(&worker_shared_state->got_restart, 1);
-  wake_worker();
+  restart_workers();
 
   PG_RETURN_BOOL(result);
 }
@@ -80,9 +79,9 @@ Datum worker_restart(__attribute__((unused)) PG_FUNCTION_ARGS) {
 Datum wait_until_running(__attribute__((unused)) PG_FUNCTION_ARGS) {
   WorkerSharedState *state = worker_shared_state;
 
-  if (pg_atomic_read_u32(&state->status) != WS_RUNNING) {
+  if (!all_workers_running()) {
     ConditionVariablePrepareToSleep(&state->cv);
-    while (pg_atomic_read_u32(&state->status) != WS_RUNNING) {
+    while (!all_workers_running()) {
       ConditionVariableSleep(&state->cv, PG_WAIT_EXTENSION);
     }
     ConditionVariableCancelSleep();
@@ -111,7 +110,7 @@ static void wake_xact_callback(XactEvent event, __attribute__((unused)) void *ar
   case XACT_EVENT_COMMIT:
   case XACT_EVENT_PARALLEL_COMMIT:
     if (wake_at_commit_pending) {
-      wake_worker();
+      wake_workers();
       wake_at_commit_pending = false;
     }
     break;

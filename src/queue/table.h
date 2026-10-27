@@ -14,21 +14,23 @@ typedef enum {
  * Dequeues at most `num_entries` from the request queue and returns them in
  * the `requests` array. The returned rows are atomically marked as in flight
  * so they are never returned again. `num_requests` will contain the actual
- * number of entries which can be less than or equal to `num_entries`.
+ * number of entries which can be less than or equal to `num_entries`. Only the requests whose id
+ * modulo `num_shards` is `shard` are considered.
  *
  * The caller must have connected to SPI.
  * The `requests` array will be allocated in the memory context active
  * before connecting to SPI.
  */
-TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_requests);
+TableQueueStatus dequeue(int num_entries, int shard, int num_shards, HttpRequest **requests,
+                         int *num_requests);
 
 /*
- * Mark all in flight requests as not in flight so they can be retried.
+ * Mark the in flight requests of a shard as not in flight so they can be retried.
  * Meant to be called when the worker starts.
  *
  * The caller must have connected to SPI.
  */
-TableQueueStatus reset_in_flight(void);
+TableQueueStatus reset_in_flight(int shard, int num_shards);
 
 /*
  * Retire a batch of requests: saves their responses in http.responses and marks
@@ -40,11 +42,12 @@ TableQueueStatus retire(HttpResponse **responses, int num_responses);
 
 /*
  * Deletes at most `max_to_delete` responses which are older than the interval `ttl`, along with
- * their requests. `num_deleted` will contain the number of deleted responses.
+ * their requests, only of the given shard. `num_deleted` will contain the number of deleted responses.
  *
  * The caller must have connected to SPI.
  */
-TableQueueStatus delete_expired(const char *ttl, int max_to_delete, uint64 *num_deleted);
+TableQueueStatus delete_expired(const char *ttl, int max_to_delete, int shard, int num_shards,
+                                uint64 *num_deleted);
 
 typedef enum {
   // The extension tables don't exist (anymore)

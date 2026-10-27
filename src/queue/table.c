@@ -16,7 +16,7 @@ static const char *dequeue_query      = "\
     where id in ( \
       select id \
       from http.requests \
-      where status = 'queued' \
+      where status = 'queued' and id % $2 = $3 \
       order by id \
       limit $1 \
     ) \
@@ -32,7 +32,7 @@ static SPIPlanPtr  reset_query_plan = NULL;
 static const char *reset_query      = "\
     update http.requests \
     set status = 'queued' \
-    where status = 'in_flight' \
+    where status = 'in_flight' and id % $1 = $2 \
 ";
 
 static SPIPlanPtr  retire_query_plan = NULL;
@@ -55,7 +55,7 @@ static const char *delete_expired_query      = "\
     with expired as ( \
       select id \
       from http.responses \
-      where created < now() - $1 \
+      where created < now() - $1 and id % $3 = $4 \
       order by created \
       limit $2 \
     ), deleted_requests as ( \
@@ -107,13 +107,16 @@ static char *spi_copy_bytea(Datum datum, size_t *len) {
 }
 #pragma GCC diagnostic pop
 
-TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_requests) {
+TableQueueStatus dequeue(int num_entries, int shard, int num_shards, HttpRequest **requests,
+                         int *num_requests) {
   if (dequeue_query_plan == NULL) {
-    dequeue_query_plan = prepare_and_keep_plan(dequeue_query, 1, (Oid[]){INT4OID});
+    dequeue_query_plan = prepare_and_keep_plan(dequeue_query, 3, (Oid[]){INT4OID, INT4OID, INT4OID});
   }
 
-  int ret_code =
-      SPI_execute_plan(dequeue_query_plan, (Datum[]){Int32GetDatum(num_entries)}, NULL, false, 0);
+  int ret_code = SPI_execute_plan(
+      dequeue_query_plan,
+      (Datum[]){Int32GetDatum(num_entries), Int32GetDatum(num_shards), Int32GetDatum(shard)}, NULL,
+      false, 0);
 
   if (ret_code != SPI_OK_UPDATE_RETURNING) {
     ereport(ERROR,
@@ -186,12 +189,13 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
   return HTTP_TABLE_QUEUE_OK;
 }
 
-TableQueueStatus reset_in_flight(void) {
+TableQueueStatus reset_in_flight(int shard, int num_shards) {
   if (reset_query_plan == NULL) {
-    reset_query_plan = prepare_and_keep_plan(reset_query, 0, NULL);
+    reset_query_plan = prepare_and_keep_plan(reset_query, 2, (Oid[]){INT4OID, INT4OID});
   }
 
-  int ret_code = SPI_execute_plan(reset_query_plan, NULL, NULL, false, 0);
+  int ret_code = SPI_execute_plan(
+      reset_query_plan, (Datum[]){Int32GetDatum(num_shards), Int32GetDatum(shard)}, NULL, false, 0);
   if (ret_code != SPI_OK_UPDATE) {
     ereport(ERROR, errmsg("error resetting http.requests: %s", SPI_result_code_string(ret_code)));
   }
@@ -278,17 +282,21 @@ TableQueueStatus retire(HttpResponse **responses, int num_responses) {
   return HTTP_TABLE_QUEUE_OK;
 }
 
-TableQueueStatus delete_expired(const char *ttl, int max_to_delete, uint64 *num_deleted) {
+TableQueueStatus delete_expired(const char *ttl, int max_to_delete, int shard, int num_shards,
+                                uint64 *num_deleted) {
   if (delete_expired_query_plan == NULL) {
-    delete_expired_query_plan =
-        prepare_and_keep_plan(delete_expired_query, 2, (Oid[]){INTERVALOID, INT4OID});
+    delete_expired_query_plan = prepare_and_keep_plan(
+        delete_expired_query, 4, (Oid[]){INTERVALOID, INT4OID, INT4OID, INT4OID});
   }
 
   Datum interval = DirectFunctionCall3(interval_in, CStringGetDatum(ttl),
                                        ObjectIdGetDatum(InvalidOid), Int32GetDatum(-1));
 
   int ret_code = SPI_execute_plan(
-      delete_expired_query_plan, (Datum[]){interval, Int32GetDatum(max_to_delete)}, NULL, false, 0);
+      delete_expired_query_plan,
+      (Datum[]){interval, Int32GetDatum(max_to_delete), Int32GetDatum(num_shards),
+                Int32GetDatum(shard)},
+      NULL, false, 0);
   if (ret_code != SPI_OK_DELETE) {
     ereport(ERROR, errmsg("error deleting expired requests: %s", SPI_result_code_string(ret_code)));
   }

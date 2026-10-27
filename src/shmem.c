@@ -5,18 +5,35 @@
  * Initialize worker shared state
  */
 void init_worker_shared_state(WorkerSharedState *state) {
-  state->procLatch = NULL;
-  pg_atomic_init_u32(&state->got_restart, 0);
-  pg_atomic_init_u32(&state->status, WS_NOT_YET);
+  for (int i = 0; i < MAX_WORKERS; i++) {
+    state->workers[i].procLatch = NULL;
+    pg_atomic_init_u32(&state->workers[i].got_restart, 0);
+    pg_atomic_init_u32(&state->workers[i].status, WS_NOT_YET);
+  }
   ConditionVariableInit(&state->cv);
 }
 
-void wake_worker(void) {
+void wake_workers(void) {
   if (worker_shared_state == NULL) return;
 
-  // Load once, the worker clears the pointer when it exits
-  Latch *latch = worker_shared_state->procLatch;
-  if (latch != NULL) SetLatch(latch);
+  for (int i = 0; i < guc_workers; i++) {
+    // Load once, the worker clears the pointer when it exits
+    Latch *latch = worker_shared_state->workers[i].procLatch;
+    if (latch != NULL) SetLatch(latch);
+  }
+}
+
+void restart_workers(void) {
+  for (int i = 0; i < guc_workers; i++)
+    pg_atomic_write_u32(&worker_shared_state->workers[i].got_restart, 1);
+  wake_workers();
+}
+
+bool all_workers_running(void) {
+  for (int i = 0; i < guc_workers; i++) {
+    if (pg_atomic_read_u32(&worker_shared_state->workers[i].status) != WS_RUNNING) return false;
+  }
+  return true;
 }
 
 static shmem_request_hook_type prev_shmem_request_hook = NULL;

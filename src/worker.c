@@ -28,6 +28,12 @@ static HttpResponse **pending_results      = NULL;
 static int            num_pending_results  = 0;
 static int            pending_results_size = 0;
 
+// The index of this worker, it handles the requests whose id modulo `pg_http.workers` is the index
+static int worker_index = 0;
+
+// This worker's slot in the shared state
+#define MY_SLOT (&worker_shared_state->workers[worker_index])
+
 // When the oldest pending result was added, only meaningful if there are pending results
 static TimestampTz first_pending_time = 0;
 
@@ -167,17 +173,17 @@ static void cycle_txn(void *arg) {
     // Retry the requests which were marked as in flight by a previous worker instance, this
     // guarantees at-least-once semantics.
     if (reset_pending) {
-      if (reset_in_flight() != HTTP_TABLE_QUEUE_OK) {
+      if (reset_in_flight(worker_index, guc_workers) != HTTP_TABLE_QUEUE_OK) {
         ereport(ERROR, errmsg(EXTNAME ": could not reset in flight requests"));
       }
       reset_pending = false;
     }
 
-    if (delete_expired(guc_ttl, guc_batch_size, &args->num_expired) != HTTP_TABLE_QUEUE_OK) {
+    if (delete_expired(guc_ttl, guc_batch_size, worker_index, guc_workers, &args->num_expired) != HTTP_TABLE_QUEUE_OK) {
       ereport(ERROR, errmsg(EXTNAME ": could not delete expired responses"));
     }
 
-    if (dequeue(args->capacity, &args->requests, &args->num_requests) != HTTP_TABLE_QUEUE_OK) {
+    if (dequeue(args->capacity, worker_index, guc_workers, &args->requests, &args->num_requests) != HTTP_TABLE_QUEUE_OK) {
       ereport(ERROR, errmsg(EXTNAME ": could not read requests from the queue"));
     }
   }
@@ -337,7 +343,7 @@ static bool wait_for_events(WaitEventSet *set, uint32 main_wait_event, long time
     return true;
   }
 
-  if (pg_atomic_exchange_u32(&worker_shared_state->got_restart, 0)) {
+  if (pg_atomic_exchange_u32(&MY_SLOT->got_restart, 0)) {
     pgstat_report_activity(STATE_RUNNING, EXTNAME ": restarting");
     return true;
   }
@@ -351,12 +357,12 @@ static bool wait_for_events(WaitEventSet *set, uint32 main_wait_event, long time
 }
 
 static void publish_status(WorkerStatus status) {
-  pg_atomic_write_u32(&worker_shared_state->status, (uint32)status);
+  pg_atomic_write_u32(&MY_SLOT->status, (uint32)status);
   ConditionVariableBroadcast(&worker_shared_state->cv);
 }
 
 static void on_worker_exit(__attribute__((unused)) int code, __attribute__((unused)) Datum arg) {
-  worker_shared_state->procLatch = NULL;
+  MY_SLOT->procLatch = NULL;
   publish_status(WS_EXITED);
 }
 
@@ -474,10 +480,12 @@ static int main_loop(uint32 main_wait_event) {
 /*
  * The main entry point for the pg_http background worker.
  */
-void pg_http_main(__attribute__((unused)) Datum main_arg) {
+void pg_http_main(Datum main_arg) {
+  worker_index = DatumGetInt32(main_arg);
+
   ereport(LOG, errmsg("inside " EXTNAME "_main function"));
 
-  worker_shared_state->procLatch = MyLatch;
+  MY_SLOT->procLatch = MyLatch;
   on_proc_exit(on_worker_exit, 0);
 
   setup_signals();

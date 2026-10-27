@@ -44,6 +44,12 @@ Columns are `requests / batch_size`.
 
 ### Tuning the new retire logic (fast requests, 40000 requests, batch_size 800 unless noted)
 
+> **Note:** `pg_http.retire_batch_size` and `pg_http.retire_timeout_ms` were declared but not
+> registered as GUCs when these runs were made, so the `-c` options below were ignored and every
+> row ran with the same effective settings (retire as soon as anything is pending). The
+> differences between the rows are noise. The GUCs are registered now (defaults 0 and 100).
+
+
 | Setting | time_taken | Throughput (req/s) | Successes | Failures | Worker CPU s | Max RSS MB |
 | --- | --- | --- | --- | --- | --- | --- |
 | `retire_timeout_ms=10` | 3.938s | 10,157 | 40000 | 0 | 3.57 | 95 |
@@ -125,6 +131,57 @@ tokio worker threads.
 * With slow requests pg_rest finishes in about one slow-request time, pg_http about 0.8s later.
   pg_rest's CPU and RSS grow with the slow share (2.6x the CPU and 4x the RSS of pg_http at 5%).
   Neither was investigated.
+
+## Multiple workers
+
+`pg_http.workers` (postmaster setting, default 1) starts several background workers. Worker `i`
+handles the requests with `id % workers = i`, including resetting its in flight requests at
+startup and expiring its responses, so workers never touch the same rows. `batch_size` is per
+worker: the requests in flight are `workers * batch_size`. `max_worker_processes` has to be larger
+than `workers`, otherwise the server refuses to start.
+
+A profile of the single worker on 40000 fast requests (macOS `sample`, 2 s, the thread was busy
+for every sample) showed where the time goes: 54% starting requests (`http_client_send`, mostly
+libcurl connecting and looking up connections), 19% handling socket events, 12% collecting
+responses, 8% retire SQL, 5.5% dequeue SQL, 1.4% commit. About 85% is libcurl and syscalls, so
+the worker is limited by one core. Fast requests, 40000 requests, same harness as above. CPU is
+the sum over all workers, RSS the sum of the workers' RSS (shared memory is counted once per
+worker).
+
+| Variant | Workers x batch_size | time_taken | Throughput (req/s) | Worker CPU s | Max RSS MB |
+| --- | --- | --- | --- | --- | --- |
+| pg_http | 1 x 800 | 4.110s | 9,732 | 3.63 | 94 |
+| pg_http | 2 x 400 | 2.374s | 16,850 | 3.45 | 125 |
+| pg_http | 4 x 250 | 1.226s | 32,626 | 3.17 | 181 |
+| pg_http | 4 x 200 | 1.232s | 32,468 | 3.01 | 172 |
+| pg_http | 6 x 170 | 0.973s | 41,110 | 3.01 | 226 |
+| pg_http | 8 x 125 | 1.012s | 39,526 | 2.90 | 259 |
+| pg_rest | n/a (1000 in flight) | 1.110s | 36,036 | 3.25 | 144 |
+
+Slow requests, 10000 requests, 2s delay:
+
+| Slow share | Variant | time_taken | Worker CPU s | Max RSS MB |
+| --- | --- | --- | --- | --- |
+| 1% | pg_http 1 x 1000 | 3.037s | 0.97 | 46 |
+| 1% | pg_http 4 x 250 | 2.333s | 1.04 | 113 |
+| 5% | pg_http 1 x 1000 | 3.002s | 0.92 | 45 |
+| 5% | pg_http 4 x 250 | 2.316s, 2.314s, 2.321s | 0.95 to 0.99 | 112 to 115 |
+
+* The total CPU stays the same while the wall time drops, the work is spread over more cores.
+  Throughput scales up to the number of cores libcurl gets, about 4x at 4 to 6 workers, and
+  stops improving at 8 (the nginx server and the enqueue side share the machine).
+* With 4 to 6 workers pg_http reaches pg_rest's throughput on this machine, with comparable CPU
+  and a higher RSS (more per-worker state, and the sum counts shared memory repeatedly).
+* With slow requests 4 workers finish in about one slow request, like pg_rest (2.25s), and use
+  less CPU and memory than pg_rest did.
+* 4 workers with `batch_size=800` (3200 in flight) produced failures: nginx has
+  `worker_connections 1024`. The same applies to 4 x 250 when run straight after another run
+  (ephemeral ports, see Notes).
+* One 5% slow run with 4 workers took 74s with 500 timeouts. It happened while leftover runs
+  from a misconfigured 8 worker test were still on the machine and did not repeat in 4 later
+  runs, but its cause was not found.
+* Fixed along the way: the retire GUCs were not registered (see the note above). Registering
+  them did not change the single worker numbers (4.11s before and after).
 
 ## Reading the results
 

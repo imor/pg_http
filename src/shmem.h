@@ -1,6 +1,7 @@
 #ifndef PG_HTTP_SHMEM_H
 #define PG_HTTP_SHMEM_H
 
+#include "guc.h"
 #include "pg_prelude.h"
 
 #include <port/atomics.h>
@@ -16,7 +17,7 @@ typedef enum {
  * Background worker state saved in the shared memory.
  * Used to communicate with other backends.
  */
-typedef struct WorkerSharedState {
+typedef struct WorkerSlot {
   // Background worker process's latch. Same as MyLatch global in a process.
   // Added to shared memory so that other backends can send signals to the
   // pg_http background worker.
@@ -28,8 +29,13 @@ typedef struct WorkerSharedState {
 
   // A `WorkerStatus`, published by the worker
   pg_atomic_uint32 status;
+} WorkerSlot;
 
-  // Broadcast whenever `status` changes
+typedef struct WorkerSharedState {
+  // One slot per worker, only the first `pg_http.workers` are used
+  WorkerSlot workers[MAX_WORKERS];
+
+  // Broadcast whenever the `status` of a worker changes
   ConditionVariable cv;
 } WorkerSharedState;
 
@@ -42,9 +48,19 @@ void init_worker_shared_state(WorkerSharedState *state);
 extern WorkerSharedState *worker_shared_state;
 
 /*
- * Sets the worker's latch, if the worker is running
+ * Sets the latch of every worker which is running
  */
-void wake_worker(void);
+void wake_workers(void);
+
+/*
+ * Asks every worker to exit so that it gets restarted
+ */
+void restart_workers(void);
+
+/*
+ * Whether all the workers are running
+ */
+bool all_workers_running(void);
 
 /*
  * Register shared memory hooks

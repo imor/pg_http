@@ -12,6 +12,7 @@ int   guc_batch_size;
 int   guc_retire_batch_size;
 int   guc_retire_timeout_ms;
 int   guc_max_timeout_ms;
+int   guc_workers;
 
 /*
  * Check hook for the ttl GUC. The value is parsed with interval_in so that an invalid value is
@@ -72,6 +73,22 @@ void register_gucs(void) {
                           "maximum number of requests the background worker has in flight at once",
                           NULL, &guc_batch_size, 200, 1, PG_INT16_MAX, PGC_SIGHUP, 0, NULL, NULL,
                           NULL);
+
+  DefineCustomIntVariable(EXTNAME ".workers",
+                          "number of background workers, each handles its own share of the requests",
+                          "every worker has up to batch_size requests in flight", &guc_workers, 1, 1,
+                          MAX_WORKERS, PGC_POSTMASTER, 0, NULL, NULL, NULL);
+
+  DefineCustomIntVariable(
+      EXTNAME ".retire_batch_size",
+      "number of finished requests which make the worker save their responses",
+      "0 means half of batch_size", &guc_retire_batch_size, 0, 0, PG_INT16_MAX, PGC_SIGHUP, 0, NULL,
+      NULL, NULL);
+
+  DefineCustomIntVariable(EXTNAME ".retire_timeout_ms",
+                          "maximum time a finished request waits before its response is saved",
+                          NULL, &guc_retire_timeout_ms, 100, 0, PG_INT32_MAX, PGC_SIGHUP, 0, NULL,
+                          NULL, NULL);
 
   DefineCustomIntVariable(
       EXTNAME ".max_timeout_ms", "upper bound for the timeout_milliseconds of a request", NULL,

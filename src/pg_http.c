@@ -28,20 +28,34 @@ void _PG_init(void) {
             errhint("Add " EXTNAME " to the shared_preload_libraries GUC in postgresql.conf."));
   }
 
-  // Register background worker to run after recovery finishes with
-  // support for connecting to the database and shared memory. If the worker
+  // The number of workers is a GUC, so it has to be defined first
+  register_gucs();
+
+  // The logical replication launcher takes a slot too. A worker which doesn't get one never
+  // starts, and the requests of its share would never be processed.
+  if (guc_workers >= max_worker_processes) {
+    ereport(ERROR, errmsg(EXTNAME ".workers (%d) needs a larger max_worker_processes (%d)",
+                          guc_workers, max_worker_processes),
+            errhint("Set max_worker_processes higher than " EXTNAME ".workers."));
+  }
+
+  // Register the background workers to run after recovery finishes with
+  // support for connecting to the database and shared memory. If a worker
   // crashes or exits, it should restart after one second.
-  RegisterBackgroundWorker(&(BackgroundWorker){
-    .bgw_flags         = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION,
-    .bgw_start_time    = BgWorkerStart_RecoveryFinished,
-    .bgw_library_name  = EXTNAME,
-    .bgw_function_name = EXTNAME "_main",
-    .bgw_name          = EXTNAME " " EXTVERSION " worker",
-    .bgw_type          = EXTNAME " worker",
-    .bgw_restart_time  = 1,
-  });
+  for (int i = 0; i < guc_workers; i++) {
+    BackgroundWorker worker = {
+      .bgw_flags         = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION,
+      .bgw_start_time    = BgWorkerStart_RecoveryFinished,
+      .bgw_library_name  = EXTNAME,
+      .bgw_function_name = EXTNAME "_main",
+      .bgw_type          = EXTNAME " worker",
+      .bgw_restart_time  = 1,
+      .bgw_main_arg      = Int32GetDatum(i),
+    };
+    snprintf(worker.bgw_name, BGW_MAXLEN, EXTNAME " " EXTVERSION " worker");
+    if (i > 0) snprintf(worker.bgw_name, BGW_MAXLEN, EXTNAME " " EXTVERSION " worker %d", i);
+    RegisterBackgroundWorker(&worker);
+  }
 
   register_shmem_hooks();
-
-  register_gucs();
 }

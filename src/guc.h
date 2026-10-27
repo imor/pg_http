@@ -3,6 +3,9 @@
 
 #include "pg_prelude.h"
 
+// Upper bound for pg_http.workers
+#define MAX_WORKERS 32
+
 // Database the background worker connects to
 extern char *guc_database_name;
 
@@ -20,6 +23,9 @@ extern int guc_retire_batch_size;
 
 // Maximum time a finished request waits to be retired
 extern int guc_retire_timeout_ms;
+
+// Number of background workers, each one handles the requests whose id is its index modulo this
+extern int guc_workers;
 
 // Upper bound for the timeout_milliseconds of a request
 extern int guc_max_timeout_ms;
