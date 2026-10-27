@@ -6,3 +6,7 @@
 !*.control.in
 pg_http--*.sql
 !pg_http--*--*.sql
+nix/nginx/logs/nginx.pid
+nginx.pid
+__pycache__/
+test/load/

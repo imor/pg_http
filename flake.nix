@@ -22,6 +22,13 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          nginxCustom = pkgs.callPackage ./nix/nginxCustom.nix { };
+          loadtest = pkgs.callPackage ./nix/loadtest.nix { };
+          pythonDeps = with pkgs.python3Packages; [
+            pytest
+            psycopg
+            sqlalchemy
+          ];
           format = pkgs.writeShellScriptBin "format" ''
             ${pkgs.clang-tools}/bin/clang-format -i $(find src -name '*.c' -o -name '*.h')
             ${pkgs.findutils}/bin/find . -name '*.nix' -exec ${pkgs.nixfmt}/bin/nixfmt {} \+
@@ -37,6 +44,9 @@
             buildInputs = [
               xpg.packages.${system}.xpg
               pkgs.curl
+              pythonDeps
+              nginxCustom.nginxScript
+              loadtest
               format
               formatCheck
             ];

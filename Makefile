@@ -18,7 +18,8 @@ ifeq ($(CC),gcc)
   endif
 endif
 
-EXTNAME = pg_http
+EXTENSION = pg_http
+EXTNAME = $(EXTENSION)
 EXTVERSION = 0.1
 
 DATA = $(sort $(wildcard sql/*--*.sql) sql/$(EXTNAME)--$(EXTVERSION).sql)
@@ -62,3 +63,7 @@ $(BUILD_DIR)/%.o: src/%.c $(HEADERS) $(BUILD_DIR)/.gitignore
 
 $(BUILD_DIR)/$(EXTNAME)$(DLSUFFIX): $(EXTNAME)$(DLSUFFIX)
 	mv $? $@
+
+.PHONY: test
+test:
+	net-with-nginx python -m pytest -s -vv $(PYTEST_ARGS)

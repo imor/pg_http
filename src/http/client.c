@@ -4,10 +4,13 @@
 
 #include <curl/curl.h>
 #include <stdbool.h>
+#include <string.h>
 
 static HttpClientStatus register_callbacks(HttpClient *client);
 
 HttpClientStatus http_client_init(HttpClient *client) {
+  client->running_handles = 0;
+
   if (poller_create(&client->poller) < 0) {
     return HTTP_CLIENT_POLLER_ERROR;
   }
@@ -27,17 +30,64 @@ HttpClientStatus http_client_init(HttpClient *client) {
   return register_callbacks(client);
 }
 
+/*
+ * Sets the curl option or returns from the function with a curl error
+ */
+#define SET_OPT(easy, opt, value)                                                                  \
+  do {                                                                                             \
+    if (curl_easy_setopt((easy), (opt), (value)) != CURLE_OK) return HTTP_CLIENT_CURL_ERROR;       \
+  } while (0)
+
 HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request,
                                   HttpResponse *response) {
-  if (curl_easy_setopt(response->easy, CURLOPT_URL, request->url) != CURLE_OK) {
+  CURL *easy = response->easy;
+
+  response->timeout_milliseconds = request->timeout_milliseconds;
+
+  // libcurl doesn't copy the headers, they are freed along with the handle
+  struct curl_slist *headers = NULL;
+  for (int i = 0; i < request->num_headers; i++) {
+    struct curl_slist *appended = curl_slist_append(headers, request->headers[i]);
+    if (appended == NULL) {
+      curl_slist_free_all(headers);
+      return HTTP_CLIENT_CURL_ERROR;
+    }
+    headers = appended;
+  }
+  struct curl_slist *appended = curl_slist_append(headers, "User-Agent: " EXTNAME "/" EXTVERSION);
+  if (appended == NULL) {
+    curl_slist_free_all(headers);
     return HTTP_CLIENT_CURL_ERROR;
   }
-  if (curl_easy_setopt(response->easy, CURLOPT_TIMEOUT_MS, 10000L) != CURLE_OK) {
-    return HTTP_CLIENT_CURL_ERROR;
+  response->request_headers = appended;
+
+  bool is_get    = pg_strcasecmp(request->method, "GET") == 0;
+  bool is_post   = pg_strcasecmp(request->method, "POST") == 0;
+  bool is_delete = pg_strcasecmp(request->method, "DELETE") == 0;
+
+  if (is_post) {
+    // POSTFIELDSIZE must be set before COPYPOSTFIELDS, which copies the body as it is
+    SET_OPT(easy, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)request->body_len);
+    SET_OPT(easy, CURLOPT_COPYPOSTFIELDS, request->body != NULL ? request->body : "");
+  } else {
+    if (is_delete) SET_OPT(easy, CURLOPT_CUSTOMREQUEST, "DELETE");
+    if (is_get && request->body != NULL) SET_OPT(easy, CURLOPT_CUSTOMREQUEST, "GET");
+    if (request->body != NULL) {
+      SET_OPT(easy, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)request->body_len);
+      SET_OPT(easy, CURLOPT_COPYPOSTFIELDS, request->body);
+    }
   }
-  if (curl_easy_setopt(response->easy, CURLOPT_PRIVATE, response) != CURLE_OK) {
-    return HTTP_CLIENT_CURL_ERROR;
-  }
+
+  SET_OPT(easy, CURLOPT_URL, request->url);
+  SET_OPT(easy, CURLOPT_HTTPHEADER, response->request_headers);
+  SET_OPT(easy, CURLOPT_TIMEOUT_MS, (long)request->timeout_milliseconds);
+  SET_OPT(easy, CURLOPT_FOLLOWLOCATION, 1L);
+#if LIBCURL_VERSION_NUM >= 0x075500 /* libcurl 7.85.0 */
+  SET_OPT(easy, CURLOPT_PROTOCOLS_STR, "http,https");
+#else
+  SET_OPT(easy, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+#endif
+  SET_OPT(easy, CURLOPT_PRIVATE, response);
 
   if (curl_multi_add_handle(client->multi, response->easy) != CURLM_OK) {
     return HTTP_CLIENT_CURL_ERROR;
@@ -45,6 +95,7 @@ HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request,
 
   if (curl_multi_socket_action(client->multi, CURL_SOCKET_TIMEOUT, 0, &client->running_handles) !=
       CURLM_OK) {
+    curl_multi_remove_handle(client->multi, easy);
     return HTTP_CLIENT_CURL_ERROR;
   }
 

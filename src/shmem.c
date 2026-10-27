@@ -6,6 +6,17 @@
  */
 void init_worker_shared_state(WorkerSharedState *state) {
   state->procLatch = NULL;
+  pg_atomic_init_u32(&state->got_restart, 0);
+  pg_atomic_init_u32(&state->status, WS_NOT_YET);
+  ConditionVariableInit(&state->cv);
+}
+
+void wake_worker(void) {
+  if (worker_shared_state == NULL) return;
+
+  // Load once, the worker clears the pointer when it exits
+  Latch *latch = worker_shared_state->procLatch;
+  if (latch != NULL) SetLatch(latch);
 }
 
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
