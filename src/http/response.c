@@ -20,8 +20,14 @@ size_t http_response_write_body(char *data, size_t size, size_t nmemb, void *use
 }
 
 void http_response_collect_headers(HttpResponse *response, CURL *easy) {
-  JsonbParseState *state = NULL;
-  pushJsonbValue(&state, WJB_BEGIN_OBJECT, NULL);
+#if PG_VERSION_NUM >= 190000
+  JsonbInState  in    = {0};
+  JsonbInState *state = &in;
+#else
+  JsonbParseState  *ps    = NULL;
+  JsonbParseState **state = &ps;
+#endif
+  pushJsonbValue(state, WJB_BEGIN_OBJECT, NULL);
 
   struct curl_header *header = NULL;
   struct curl_header *prev   = NULL;
@@ -32,11 +38,16 @@ void http_response_collect_headers(HttpResponse *response, CURL *easy) {
     JsonbValue value = {
       .type = jbvString,
       .val  = {.string = {.len = (int)strlen(header->value), .val = header->value}}};
-    pushJsonbValue(&state, WJB_KEY, &key);
-    pushJsonbValue(&state, WJB_VALUE, &value);
+    pushJsonbValue(state, WJB_KEY, &key);
+    pushJsonbValue(state, WJB_VALUE, &value);
     prev = header;
   }
 
-  JsonbValue *object = pushJsonbValue(&state, WJB_END_OBJECT, NULL);
+#if PG_VERSION_NUM >= 190000
+  pushJsonbValue(state, WJB_END_OBJECT, NULL);
+  JsonbValue *object = in.result;
+#else
+  JsonbValue *object = pushJsonbValue(state, WJB_END_OBJECT, NULL);
+#endif
   response->headers  = JsonbValueToJsonb(object);
 }

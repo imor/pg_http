@@ -1,3 +1,4 @@
+import psycopg
 import time
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
@@ -224,8 +225,16 @@ def wait_for_worker_up(autocommit_sess):
     Or throws an error if it doesn't within a timeout
     """
 
+    fetch = is_worker_up(autocommit_sess)
+
+    def fetch_and_poke_postmaster():
+        # Before PG 16 the postmaster can miss the SIGCHLD of an exited worker and sleep
+        # for up to a minute before restarting it. A new connection wakes it up.
+        psycopg.connect("dbname=postgres").close()
+        return fetch()
+
     wait_until(
-        is_worker_up(autocommit_sess),
+        fetch_and_poke_postmaster,
         lambda worker_is_up: worker_is_up,
         description="background worker to come up",
     )

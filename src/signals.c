@@ -10,6 +10,10 @@ volatile sig_atomic_t termination_requested = 0;
  * if it was sleeping.
  */
 void handle_sigterm(__attribute__((unused)) SIGNAL_ARGS) {
+#if PG_VERSION_NUM >= 190000
+  // PG 19 adds a second parameter to SIGNAL_ARGS
+  (void)pg_siginfo;
+#endif
   int save_errno = errno;
 
   termination_requested = 1;

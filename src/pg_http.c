@@ -5,6 +5,11 @@
 
 PG_MODULE_MAGIC;
 
+#if PG_VERSION_NUM < 160000
+// fmgr.h declares _PG_init only from PG 16
+void _PG_init(void);
+#endif
+
 /*
  * The function called by postmaster during initialization.
  *

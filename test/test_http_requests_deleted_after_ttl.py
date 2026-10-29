@@ -2,7 +2,7 @@ import pytest
 import time
 from sqlalchemy import text
 from common import collect_response_sync, http_request, http_requests, restart_worker
-from common import wait_for_response_count, wakeup_worker
+from common import wait_for_response_count, wait_for_worker_state, wakeup_worker
 
 
 def test_http_responses_deleted_after_ttl(sess, autocommit_sess):
@@ -65,6 +65,10 @@ def test_http_responses_will_complete_deletion(sess, autocommit_sess):
     assert response["status"] == "SUCCESS"
 
     wait_for_response_count(autocommit_sess, 4)
+
+    # The worker looks at the queue again shortly after processing requests. Let that happen
+    # before lowering the ttl, otherwise it would delete a batch on its own, besides the wakeup.
+    wait_for_worker_state(autocommit_sess, "idle")
 
     try:
         autocommit_sess.execute(text("alter system set pg_http.ttl to '1 second';"))

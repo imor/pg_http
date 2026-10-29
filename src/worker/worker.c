@@ -33,7 +33,12 @@ static void report_activity(const Schedule *schedule, const HttpClient *client) 
 }
 
 static WaitEventSet *create_wait_event_set(HttpClient *client) {
+#if PG_VERSION_NUM >= 170000
+  // NULL resource owner: the set lives for the whole worker lifetime and is freed explicitly
   WaitEventSet *set = CreateWaitEventSet(NULL, 3);
+#else
+  WaitEventSet *set = CreateWaitEventSet(TopMemoryContext, 3);
+#endif
   AddWaitEventToSet(set, WL_LATCH_SET, PGINVALID_SOCKET, MyLatch, NULL);
   AddWaitEventToSet(set, WL_EXIT_ON_PM_DEATH, PGINVALID_SOCKET, NULL, NULL);
   AddWaitEventToSet(set, WL_SOCKET_READABLE, http_client_fd(client), NULL, NULL);
@@ -47,18 +52,20 @@ static WaitEventSet *create_wait_event_set(HttpClient *client) {
  * * Timers and network (via the poller's root fd)
  *
  * `timeout_ms` is -1 to wait forever. Returns true if the worker must exit, either because
- * termination or a restart was requested. Sets `woken` if the latch was set, i.e. a wake was
- * requested.
+ * termination or a restart was requested. Sets `woken` if a wake was requested.
  */
 static bool wait_for_events(WaitEventSet *set, uint32 main_wait_event, long timeout_ms,
                             bool *woken) {
   WaitEvent event;
 
-  int n  = WaitEventSetWait(set, timeout_ms, &event, 1, main_wait_event);
-  *woken = n > 0 && (event.events & WL_LATCH_SET);
-  if (*woken) {
+  int n = WaitEventSetWait(set, timeout_ms, &event, 1, main_wait_event);
+  if (n > 0 && (event.events & WL_LATCH_SET)) {
     ResetLatch(MyLatch);
   }
+
+  // Checked after resetting the latch so that a wake requested meanwhile is not lost: it sets
+  // the latch again and is seen on the next iteration at the latest
+  *woken = pg_atomic_exchange_u32(&worker_shared_state->wake_requested, 0) != 0;
 
   CHECK_FOR_INTERRUPTS();
 
@@ -140,7 +147,9 @@ void pg_http_main(__attribute__((unused)) Datum main_arg) {
   ereport(LOG, errmsg("inside " EXTNAME "_main function"));
 
   worker_shared_state->procLatch = MyLatch;
-  on_proc_exit(on_worker_exit, 0);
+  // before_shmem_exit, not on_proc_exit: broadcasting on the condition variable needs MyProc,
+  // which is already gone when on_proc_exit callbacks run
+  before_shmem_exit(on_worker_exit, 0);
 
   setup_signals();
 
@@ -153,7 +162,11 @@ void pg_http_main(__attribute__((unused)) Datum main_arg) {
   // Set state, state_change, query, and query_start fields in pg_stat_activity view
   pgstat_report_activity(STATE_RUNNING, EXTNAME ": initializing");
 
+#if PG_VERSION_NUM >= 170000
   uint32 main_wait_event = WaitEventExtensionNew("PgHttpMain");
+#else
+  uint32 main_wait_event = PG_WAIT_EXTENSION;
+#endif
 
   int code = main_loop(main_wait_event);
 

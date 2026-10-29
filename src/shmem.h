@@ -23,6 +23,10 @@ typedef struct WorkerSharedState {
   // NULL while the worker is not running. Read it once into a local before using it.
   Latch *volatile procLatch;
 
+  // Set by `wake_worker` before setting the latch. The latch is also set by Postgres itself,
+  // e.g. for interrupts, so only this flag tells that a wake was actually requested.
+  pg_atomic_uint32 wake_requested;
+
   // Set by `http.worker_restart()` to ask the worker to exit so that it gets restarted
   pg_atomic_uint32 got_restart;
 
