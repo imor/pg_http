@@ -2,28 +2,25 @@
 #include "shmem.h"
 
 #include <curl/curl.h>
-#include <utils/fmgroids.h>
-#include <utils/guc.h>
 
 PG_FUNCTION_INFO_V1(_urlencode_string);
-PG_FUNCTION_INFO_V1(_encode_url_with_params_array);
-PG_FUNCTION_INFO_V1(worker_restart);
-PG_FUNCTION_INFO_V1(wait_until_running);
-PG_FUNCTION_INFO_V1(wake);
 
 Datum _urlencode_string(PG_FUNCTION_ARGS) {
   if (PG_ARGISNULL(0)) PG_RETURN_NULL();
 
   char *str     = text_to_cstring(PG_GETARG_TEXT_PP(0));
-  char *encoded = curl_easy_escape(NULL, str, (int)strlen(str));
+  char *escaped = curl_easy_escape(NULL, str, (int)strlen(str));
   pfree(str);
 
-  if (encoded == NULL) PG_RETURN_NULL();
+  if (escaped == NULL) PG_RETURN_NULL();
 
-  text *result = cstring_to_text(encoded);
-  curl_free(encoded);
+  text *result = cstring_to_text(escaped);
+  curl_free(escaped);
+
   PG_RETURN_TEXT_P(result);
 }
+
+PG_FUNCTION_INFO_V1(_encode_url_with_params_array);
 
 Datum _encode_url_with_params_array(PG_FUNCTION_ARGS) {
   if (PG_ARGISNULL(0) || PG_ARGISNULL(1)) PG_RETURN_NULL();
@@ -67,6 +64,8 @@ Datum _encode_url_with_params_array(PG_FUNCTION_ARGS) {
   PG_RETURN_TEXT_P(result);
 }
 
+PG_FUNCTION_INFO_V1(worker_restart);
+
 Datum worker_restart(__attribute__((unused)) PG_FUNCTION_ARGS) {
   // Reload the config so the new worker sees any pending ALTER SYSTEM changes
   bool result = DatumGetBool(DirectFunctionCall1(pg_reload_conf, (Datum)0));
@@ -76,6 +75,8 @@ Datum worker_restart(__attribute__((unused)) PG_FUNCTION_ARGS) {
 
   PG_RETURN_BOOL(result);
 }
+
+PG_FUNCTION_INFO_V1(wait_until_running);
 
 Datum wait_until_running(__attribute__((unused)) PG_FUNCTION_ARGS) {
   WorkerSharedState *state = worker_shared_state;
@@ -115,14 +116,16 @@ static void wake_xact_callback(XactEvent event, __attribute__((unused)) void *ar
       wake_at_commit_pending = false;
     }
     break;
-  case XACT_EVENT_PREPARE:
-  case XACT_EVENT_ABORT:
+  case XACT_EVENT_PREPARE            :
+  case XACT_EVENT_ABORT              :
   case XACT_EVENT_PARALLEL_ABORT     : wake_at_commit_pending = false; break;
   case XACT_EVENT_PRE_COMMIT         :
   case XACT_EVENT_PARALLEL_PRE_COMMIT:
   case XACT_EVENT_PRE_PREPARE        : break;
   }
 }
+
+PG_FUNCTION_INFO_V1(wake);
 
 Datum wake(__attribute__((unused)) PG_FUNCTION_ARGS) {
   if (!wake_callback_registered) {

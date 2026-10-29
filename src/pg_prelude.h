@@ -23,6 +23,8 @@
 #include <utils/array.h>
 #include <utils/backend_status.h>
 #include <utils/builtins.h>
+#include <utils/fmgroids.h>
+#include <utils/guc.h>
 #include <utils/memutils.h>
 #include <utils/snapmgr.h>
 #include <utils/wait_event.h>

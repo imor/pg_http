@@ -9,7 +9,7 @@ extern char *guc_database_name;
 // User the background worker connects as
 extern char *guc_username;
 
-// Time to live of completed requests and their responses, an interval
+// Time interval after which completed requests and their responses are deleted
 extern char *guc_ttl;
 
 // Maximum number of requests in flight at once, and of responses expired per worker cycle

@@ -64,20 +64,20 @@ void register_gucs(void) {
   DefineCustomStringVariable(EXTNAME ".username", "User as which background worker will connect",
                              NULL, &guc_username, NULL, PGC_SU_BACKEND, 0, NULL, NULL, NULL);
 
-  DefineCustomStringVariable(EXTNAME ".ttl", "time to live for request/response rows",
-                             "should be a valid, non-negative interval", &guc_ttl, "6 hours",
-                             PGC_SIGHUP, 0, check_ttl, NULL, NULL);
+  DefineCustomStringVariable(
+      EXTNAME ".ttl", "time to live for completed requests/response",
+      "time interval after which completed request/response rows are deleted", &guc_ttl, "6 hours",
+      PGC_SIGHUP, 0, check_ttl, NULL, NULL);
 
   DefineCustomIntVariable(EXTNAME ".batch_size",
                           "maximum number of requests the background worker has in flight at once",
                           NULL, &guc_batch_size, 200, 1, PG_INT16_MAX, PGC_SIGHUP, 0, NULL, NULL,
                           NULL);
 
-  DefineCustomIntVariable(
-      EXTNAME ".retire_batch_size",
-      "number of finished requests which make the worker save their responses",
-      "0 means half of batch_size", &guc_retire_batch_size, 0, 0, PG_INT16_MAX, PGC_SIGHUP, 0, NULL,
-      NULL, NULL);
+  DefineCustomIntVariable(EXTNAME ".retire_batch_size",
+                          "number of finished requests which make the worker save their responses",
+                          "0 means half of batch_size", &guc_retire_batch_size, 0, 0, PG_INT16_MAX,
+                          PGC_SIGHUP, 0, NULL, NULL, NULL);
 
   DefineCustomIntVariable(EXTNAME ".retire_timeout_ms",
                           "maximum time a finished request waits before its response is saved",

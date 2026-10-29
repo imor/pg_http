@@ -4,13 +4,10 @@
       "name": "Default",
       "includePath": [
         "${workspaceFolder}/src",
-        "/nix/store/nh8irc10a7gsy22gz47mkh59m12nxxyl-postgresql-17.0/include/server",
-        "/nix/store/nh8irc10a7gsy22gz47mkh59m12nxxyl-postgresql-17.0/include",
-        "/nix/store/nh8irc10a7gsy22gz47mkh59m12nxxyl-postgresql-17.0/include/internal",
-        "/nix/store/ikmdk37frjdblkba3wl3xws2wwgln17x-curl-8.17.0-dev/include",
-        "/nix/store/3pv7s3r7c5sm49028v2hvz71iqgfbi61-postgresql-17.6/include/server",
-        "/nix/store/3pv7s3r7c5sm49028v2hvz71iqgfbi61-postgresql-17.6/include",
-        "/nix/store/agsg9qc59dwv8vdjrn7vrlyq8g466bds-curl-8.17.0-dev/include"
+        "/nix/store/rgdbzr400d6df6nnvawd3a7a3s6by1h3-postgresql-17.0/include/server",
+        "/nix/store/rgdbzr400d6df6nnvawd3a7a3s6by1h3-postgresql-17.0/include",
+        "/nix/store/rgdbzr400d6df6nnvawd3a7a3s6by1h3-postgresql-17.0/include/internal",
+        "/nix/store/ydp55g2mbd6rk6lfw0krkk3jwgdiqj5d-curl-8.17.0-dev/include"
       ],
       "defines": ["EXTNAME=\"pg_http\"", "EXTVERSION=\"0.1\""],
       "macFrameworkPath": [

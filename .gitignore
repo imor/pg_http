@@ -10,3 +10,4 @@ nix/nginx/logs/nginx.pid
 nginx.pid
 __pycache__/
 test/load/
+.DS_Store
