@@ -1,7 +1,7 @@
 #include "guc.h"
 #include "pg_prelude.h"
 #include "shmem.h"
-#include "worker.h"
+#include "worker/worker.h"
 
 PG_MODULE_MAGIC;
 
