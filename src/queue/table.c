@@ -148,7 +148,6 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
                               .url                  = spi_copy_string(url),
                               .timeout_milliseconds = DatumGetInt32(timeout),
                               .headers              = NULL,
-                              .num_headers          = 0,
                               .body                 = NULL,
                               .body_len             = 0};
 
@@ -160,14 +159,16 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
       deconstruct_array(datum_get_array(headers), TEXTOID, -1, false, TYPALIGN_INT, &elements,
                         &nulls, &n);
 
-      const char **copies = n > 0 ? SPI_palloc(sizeof(char *) * (size_t)n) : NULL;
-      int          kept   = 0;
       for (int j = 0; j < n; j++) {
         if (nulls[j]) continue;
-        copies[kept++] = spi_copy_string(TextDatumGetCString(elements[j]));
+        struct curl_slist *appended =
+            curl_slist_append(result[i].headers, TextDatumGetCString(elements[j]));
+        if (appended == NULL) {
+          curl_slist_free_all(result[i].headers);
+          ereport(ERROR, errmsg(EXTNAME ": could not copy the headers of a request"));
+        }
+        result[i].headers = appended;
       }
-      result[i].headers     = copies;
-      result[i].num_headers = kept;
     }
 
     Datum body = SPI_getbinval(tuple, desc, 6, &isnull);
@@ -206,16 +207,16 @@ static ArrayType *build_array(Datum *values, bool *nulls, int n, Oid type, int16
   return construct_md_array(values, nulls, 1, dims, lbs, type, len, byval, align);
 }
 
-TableQueueStatus retire(HttpResponse **responses, int num_responses) {
+TableQueueStatus retire(HttpTransfer **transfers, int num_transfers) {
   if (retire_query_plan == NULL) {
     retire_query_plan = prepare_and_keep_plan(retire_query, 6,
                                               (Oid[]){INT8ARRAYOID, INT4ARRAYOID, JSONBARRAYOID,
                                                       TEXTARRAYOID, TEXTARRAYOID, TEXTARRAYOID});
   }
 
-  if (num_responses <= 0) return HTTP_TABLE_QUEUE_OK;
+  if (num_transfers <= 0) return HTTP_TABLE_QUEUE_OK;
 
-  size_t n       = (size_t)num_responses;
+  size_t n       = (size_t)num_transfers;
   Datum *ids     = palloc(sizeof(Datum) * n);
   Datum *codes   = palloc(sizeof(Datum) * n);
   Datum *headers = palloc(sizeof(Datum) * n);
@@ -229,9 +230,9 @@ TableQueueStatus retire(HttpResponse **responses, int num_responses) {
   bool  *no_err  = palloc(sizeof(bool) * n);
   bool  *never   = palloc0(sizeof(bool) * n);
 
-  for (int i = 0; i < num_responses; i++) {
-    HttpResponse *r = responses[i];
-    ids[i]          = Int64GetDatum(r->request_id);
+  for (int i = 0; i < num_transfers; i++) {
+    HttpResponse *r = &transfers[i]->response;
+    ids[i]          = Int64GetDatum(transfers[i]->request.id);
     no_code[i]      = r->status_code == 0;
     codes[i]        = Int32GetDatum(r->status_code);
     no_hdrs[i]      = r->headers == NULL;
@@ -246,12 +247,12 @@ TableQueueStatus retire(HttpResponse **responses, int num_responses) {
   }
 
   Datum args[6] = {
-    PointerGetDatum(build_array(ids, never, num_responses, INT8OID, sizeof(int64), true, 'd')),
-    PointerGetDatum(build_array(codes, no_code, num_responses, INT4OID, sizeof(int32), true, 'i')),
-    PointerGetDatum(build_array(headers, no_hdrs, num_responses, JSONBOID, -1, false, 'i')),
-    PointerGetDatum(build_array(body, no_body, num_responses, TEXTOID, -1, false, 'i')),
-    PointerGetDatum(build_array(etypes, no_type, num_responses, TEXTOID, -1, false, 'i')),
-    PointerGetDatum(build_array(errors, no_err, num_responses, TEXTOID, -1, false, 'i')),
+    PointerGetDatum(build_array(ids, never, num_transfers, INT8OID, sizeof(int64), true, 'd')),
+    PointerGetDatum(build_array(codes, no_code, num_transfers, INT4OID, sizeof(int32), true, 'i')),
+    PointerGetDatum(build_array(headers, no_hdrs, num_transfers, JSONBOID, -1, false, 'i')),
+    PointerGetDatum(build_array(body, no_body, num_transfers, TEXTOID, -1, false, 'i')),
+    PointerGetDatum(build_array(etypes, no_type, num_transfers, TEXTOID, -1, false, 'i')),
+    PointerGetDatum(build_array(errors, no_err, num_transfers, TEXTOID, -1, false, 'i')),
   };
 
   int ret_code = SPI_execute_plan(retire_query_plan, args, NULL, false, 0);

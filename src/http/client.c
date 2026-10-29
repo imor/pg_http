@@ -1,6 +1,6 @@
 #include "client.h"
 #include "pg_prelude.h"
-#include "response.h"
+#include "transfer.h"
 
 #include <curl/curl.h>
 #include <stdbool.h>
@@ -38,28 +38,9 @@ HttpClientStatus http_client_init(HttpClient *client) {
     if (curl_easy_setopt((easy), (opt), (value)) != CURLE_OK) return HTTP_CLIENT_CURL_ERROR;       \
   } while (0)
 
-HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request,
-                                  HttpResponse *response) {
-  CURL *easy = response->easy;
-
-  response->timeout_milliseconds = request->timeout_milliseconds;
-
-  // libcurl doesn't copy the headers, they are freed along with the handle
-  struct curl_slist *headers = NULL;
-  for (int i = 0; i < request->num_headers; i++) {
-    struct curl_slist *appended = curl_slist_append(headers, request->headers[i]);
-    if (appended == NULL) {
-      curl_slist_free_all(headers);
-      return HTTP_CLIENT_CURL_ERROR;
-    }
-    headers = appended;
-  }
-  struct curl_slist *appended = curl_slist_append(headers, "User-Agent: " EXTNAME "/" EXTVERSION);
-  if (appended == NULL) {
-    curl_slist_free_all(headers);
-    return HTTP_CLIENT_CURL_ERROR;
-  }
-  response->request_headers = appended;
+HttpClientStatus http_client_send(HttpClient *client, HttpTransfer *transfer) {
+  CURL        *easy    = transfer->easy;
+  HttpRequest *request = &transfer->request;
 
   bool is_get    = pg_strcasecmp(request->method, "GET") == 0;
   bool is_post   = pg_strcasecmp(request->method, "POST") == 0;
@@ -79,7 +60,7 @@ HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request,
   }
 
   SET_OPT(easy, CURLOPT_URL, request->url);
-  SET_OPT(easy, CURLOPT_HTTPHEADER, response->request_headers);
+  SET_OPT(easy, CURLOPT_HTTPHEADER, request->headers);
   SET_OPT(easy, CURLOPT_TIMEOUT_MS, (long)request->timeout_milliseconds);
   SET_OPT(easy, CURLOPT_FOLLOWLOCATION, 1L);
 #if LIBCURL_VERSION_NUM >= 0x075500 /* libcurl 7.85.0 */
@@ -87,9 +68,9 @@ HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request,
 #else
   SET_OPT(easy, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
 #endif
-  SET_OPT(easy, CURLOPT_PRIVATE, response);
+  SET_OPT(easy, CURLOPT_PRIVATE, transfer);
 
-  if (curl_multi_add_handle(client->multi, response->easy) != CURLM_OK) {
+  if (curl_multi_add_handle(client->multi, easy) != CURLM_OK) {
     return HTTP_CLIENT_CURL_ERROR;
   }
 
@@ -152,17 +133,17 @@ HttpClientStatus http_client_process(HttpClient *client) {
   return HTTP_CLIENT_OK;
 }
 
-HttpClientStatus http_client_get_responses(HttpClient *client, response_callback callback) {
+HttpClientStatus http_client_get_transfers(HttpClient *client, transfer_callback callback) {
   CURLMsg *message;
   int      remaining_messages;
 
   while ((message = curl_multi_info_read(client->multi, &remaining_messages)) != NULL) {
     if (message->msg != CURLMSG_DONE) continue;
 
-    HttpResponse *response    = NULL;
+    HttpTransfer *transfer    = NULL;
     long          status_code = 0;
 
-    if (curl_easy_getinfo(message->easy_handle, CURLINFO_PRIVATE, &response) != CURLE_OK) {
+    if (curl_easy_getinfo(message->easy_handle, CURLINFO_PRIVATE, &transfer) != CURLE_OK) {
       return HTTP_CLIENT_CURL_ERROR;
     }
 
@@ -172,7 +153,7 @@ HttpClientStatus http_client_get_responses(HttpClient *client, response_callback
 
     curl_multi_remove_handle(client->multi, message->easy_handle);
 
-    callback(message->data.result, response, status_code);
+    callback(message->data.result, transfer, status_code);
   }
 
   return HTTP_CLIENT_OK;

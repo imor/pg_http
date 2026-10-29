@@ -2,8 +2,7 @@
 #define PG_HTTP_CLIENT_H
 
 #include "poller/poller.h"
-#include "request.h"
-#include "response.h"
+#include "transfer.h"
 
 #include <curl/curl.h>
 #include <curl/multi.h>
@@ -37,7 +36,7 @@ HttpClientStatus http_client_init(HttpClient *client);
 /*
  * Send an HTTP request
  */
-HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request, HttpResponse *response);
+HttpClientStatus http_client_send(HttpClient *client, HttpTransfer *transfer);
 
 /*
  * This function performs the actual I/O required to send/receive
@@ -46,14 +45,14 @@ HttpClientStatus http_client_send(HttpClient *client, HttpRequest *request, Http
 HttpClientStatus http_client_process(HttpClient *client);
 
 /*
- * Type of function callback used to receive completed responses
+ * Type of function callback used to receive completed transfers
  */
-typedef void (*response_callback)(CURLcode code, HttpResponse *response, long status_code);
+typedef void (*transfer_callback)(CURLcode code, HttpTransfer *transfer, long status_code);
 
 /*
- * Get responses which have completed in the response callback
+ * Get transfers which have completed in the callback
  */
-HttpClientStatus http_client_get_responses(HttpClient *client, response_callback);
+HttpClientStatus http_client_get_transfers(HttpClient *client, transfer_callback);
 
 /*
  * Returns the fd which should be waited to become readable before calling

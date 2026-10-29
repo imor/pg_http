@@ -1,6 +1,7 @@
 #ifndef PG_HTTP_REQUEST_H
 #define PG_HTTP_REQUEST_H
 
+#include <curl/curl.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -21,14 +22,23 @@ typedef struct HttpRequest {
   // The maximum time the request may take, in milliseconds.
   int32_t timeout_milliseconds;
 
-  // The request headers, each one in the `Name: value` format. NULL if there are none.
-  const char *const *headers;
-  int                num_headers;
+  // The request headers, each one in the `Name: value` format. NULL if there are none. libcurl
+  // doesn't copy the list, so it must stay alive until the transfer is done. It is malloc'd by
+  // libcurl and owned by the request, until a transfer takes it over.
+  struct curl_slist *headers;
 
   // The request body, NULL if there is none.
   const char *body;
+
+  // Length of the body in bytes
   size_t      body_len;
 } HttpRequest;
+
+/*
+ * Returns a copy of `request`, allocated in the current memory context. The ownership of the
+ * headers list moves to the copy, `request->headers` is set to NULL.
+ */
+HttpRequest http_request_take(HttpRequest *request);
 
 /*
  * Returns NULL if the request is valid and can be sent, otherwise a palloc'd

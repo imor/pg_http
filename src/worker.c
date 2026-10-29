@@ -21,10 +21,10 @@
 #define RECHECK_INTERVAL_MS 1000
 
 /*
- * Results waiting to be retired. Their strings live in TopMemoryContext. The array grows when
- * results can't be retired for a while, e.g. while a user holds a lock on the tables.
+ * Finished transfers waiting to be retired. The array grows when results can't be retired for a
+ * while, e.g. while a user holds a lock on the tables.
  */
-static HttpResponse **pending_results      = NULL;
+static HttpTransfer **pending_results      = NULL;
 static int            num_pending_results  = 0;
 static int            pending_results_size = 0;
 
@@ -93,29 +93,28 @@ static ExtensionLockStatus begin_extension_work(Oid *requests_relid) {
 }
 
 /*
- * Adds a finished response to the ones waiting to be retired, which takes ownership of it.
+ * Adds a finished transfer to the ones waiting to be retired, which takes ownership of it.
  */
-static void add_pending_result(HttpResponse *response) {
+static void add_pending_result(HttpTransfer *transfer) {
   if (num_pending_results == pending_results_size) {
     int new_size =
         pending_results_size == 0 ? PENDING_RESULTS_INITIAL_SIZE : pending_results_size * 2;
     MemoryContext old_context = MemoryContextSwitchTo(TopMemoryContext);
     pending_results           = pending_results == NULL
-                                    ? palloc(sizeof(HttpResponse *) * (size_t)new_size)
-                                    : repalloc(pending_results, sizeof(HttpResponse *) * (size_t)new_size);
+                                    ? palloc(sizeof(HttpTransfer *) * (size_t)new_size)
+                                    : repalloc(pending_results, sizeof(HttpTransfer *) * (size_t)new_size);
     MemoryContextSwitchTo(old_context);
     pending_results_size = new_size;
   }
 
   if (num_pending_results == 0) first_pending_time = GetCurrentTimestamp();
 
-  pending_results[num_pending_results++] = response;
+  pending_results[num_pending_results++] = transfer;
 }
 
 static void drop_pending_results(void) {
   for (int i = 0; i < num_pending_results; i++) {
-    http_response_close(pending_results[i]);
-    pfree(pending_results[i]);
+    http_transfer_destroy(pending_results[i]);
   }
   num_pending_results = 0;
 }
@@ -151,7 +150,7 @@ static void cycle_txn(void *arg) {
   if (args->retire) {
     // Only the results whose request was read from the current incarnation of the extension are
     // retired, the others belong to a dropped extension.
-    HttpResponse **current = palloc(sizeof(HttpResponse *) * (size_t)num_pending_results);
+    HttpTransfer **current = palloc(sizeof(HttpTransfer *) * (size_t)num_pending_results);
     int            count   = 0;
     for (int i = 0; i < num_pending_results; i++) {
       if (pending_results[i]->requests_relid == args->requests_relid)
@@ -199,14 +198,16 @@ static const char *error_type_for(CURLcode code) {
 /*
  * Called for every request which has completed.
  */
-static void on_response(CURLcode code, HttpResponse *response, long status_code) {
+static void on_response(CURLcode code, HttpTransfer *transfer, long status_code) {
+  HttpResponse *response = &transfer->response;
+
   // Everything kept in the response outlives the current transaction
-  MemoryContext old_context = MemoryContextSwitchTo(TopMemoryContext);
+  MemoryContext old_context = MemoryContextSwitchTo(transfer->context);
 
   if (code != CURLE_OK) {
     ereport(LOG, errmsg(EXTNAME ": request failed: %s", curl_easy_strerror(code)));
 
-    response->error_msg = code == CURLE_OPERATION_TIMEDOUT ? http_response_timeout_message(response)
+    response->error_msg = code == CURLE_OPERATION_TIMEDOUT ? http_transfer_timeout_message(transfer)
                                                            : pstrdup(curl_easy_strerror(code));
     response->error_type = error_type_for(code);
     resetStringInfo(&response->body);
@@ -214,25 +215,25 @@ static void on_response(CURLcode code, HttpResponse *response, long status_code)
     ereport(LOG, errmsg(EXTNAME ": got response with status %ld and %d body bytes", status_code,
                         response->body.len));
     response->status_code = (int32)status_code;
-    http_response_collect_headers(response);
+    http_response_collect_headers(response, transfer->easy);
   }
 
   MemoryContextSwitchTo(old_context);
 
-  // Responses are allocated in send_batch and owned by us once completed. They are kept
+  // Transfers are created in send_requests and owned by us once completed. They are kept
   // until the next retire, but the CURL handle is not needed anymore.
-  http_response_release_handle(response);
-  add_pending_result(response);
+  http_transfer_release_handle(transfer);
+  add_pending_result(transfer);
 }
 
 /*
- * Marks a response as failed without the request having been sent
+ * Marks a transfer as failed without the request having been sent
  */
-static void reject(HttpResponse *response, char *reason) {
-  response->error_msg  = reason;
-  response->error_type = "other";
-  http_response_release_handle(response);
-  add_pending_result(response);
+static void reject(HttpTransfer *transfer, const char *reason) {
+  transfer->response.error_msg  = MemoryContextStrdup(transfer->context, reason);
+  transfer->response.error_type = "other";
+  http_transfer_release_handle(transfer);
+  add_pending_result(transfer);
 }
 
 /*
@@ -240,33 +241,25 @@ static void reject(HttpResponse *response, char *reason) {
  */
 static void send_requests(HttpClient *client, HttpRequest *requests, int num_requests,
                           Oid requests_relid) {
-  // Responses outlive this function so they are allocated in a long lived context
-  MemoryContext old_context = MemoryContextSwitchTo(TopMemoryContext);
-
   for (int i = 0; i < num_requests; i++) {
-    HttpResponse      *response = palloc(sizeof(HttpResponse));
-    HttpResponseStatus status   = http_response_init(response);
-    response->request_id        = requests[i].id;
-    response->requests_relid    = requests_relid;
-
-    if (status != HTTP_RESPONSE_OK) {
-      ereport(ERROR, errmsg(EXTNAME ": could not initialize http response"));
+    // The transfer takes over the request, which is freed with the batch
+    HttpTransfer *transfer = http_transfer_create(&requests[i], requests_relid);
+    if (transfer == NULL) {
+      ereport(ERROR, errmsg(EXTNAME ": could not initialize http transfer"));
     }
 
-    char *rejection = http_request_rejection(&requests[i], guc_max_timeout_ms);
+    char *rejection = http_request_rejection(&transfer->request, guc_max_timeout_ms);
     if (rejection != NULL) {
-      reject(response, rejection);
+      reject(transfer, rejection);
+      pfree(rejection);
       continue;
     }
 
-    // curl copies the url and body, so requests can be freed after this loop
-    if (http_client_send(client, &requests[i], response) != HTTP_CLIENT_OK) {
+    if (http_client_send(client, transfer) != HTTP_CLIENT_OK) {
       ereport(WARNING, errmsg(EXTNAME ": could not start request to %s", requests[i].url));
-      reject(response, pstrdup("could not start the request"));
+      reject(transfer, "could not start the request");
     }
   }
-
-  MemoryContextSwitchTo(old_context);
 }
 
 /*
@@ -419,7 +412,7 @@ static int main_loop(uint32 main_wait_event) {
     pgstat_report_activity(STATE_RUNNING, EXTNAME ": working");
 
     if (http_client_process(&client) != HTTP_CLIENT_OK ||
-        http_client_get_responses(&client, on_response) != HTTP_CLIENT_OK) {
+        http_client_get_transfers(&client, on_response) != HTTP_CLIENT_OK) {
       ereport(WARNING, errmsg(EXTNAME ": error while processing http requests"));
     }
 
