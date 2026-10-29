@@ -80,27 +80,17 @@ static SPIPlanPtr prepare_and_keep_plan(const char *sql, int nargs, Oid *argtype
   return prepared;
 }
 
-/*
- * Copies a string into the memory context active before connecting to SPI
- */
-static char *spi_copy_string(const char *str) {
-  size_t len  = strlen(str) + 1;
-  char  *copy = SPI_palloc(len);
-  memcpy(copy, str, len);
-  return copy;
-}
-
 // The varlena macros cast to a more strictly aligned type, which is fine for a detoasted datum
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-align"
 /*
- * Copies the bytes of a bytea into the memory context active before connecting to SPI. The
- * copy is NUL terminated, but its length doesn't include the terminator.
+ * Copies the bytes of a bytea into `context`. The copy is NUL terminated, but its length doesn't
+ * include the terminator.
  */
-static char *spi_copy_bytea(Datum datum, size_t *len) {
+static char *copy_bytea(MemoryContext context, Datum datum, size_t *len) {
   bytea *bytes = DatumGetByteaPP(datum);
   *len         = VARSIZE_ANY_EXHDR(bytes);
-  char *copy   = SPI_palloc(*len + 1);
+  char *copy   = MemoryContextAlloc(context, *len + 1);
   memcpy(copy, VARDATA_ANY(bytes), *len);
   copy[*len] = '\0';
   return copy;
@@ -127,6 +117,12 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
   HttpRequest *result = count > 0 ? SPI_palloc(sizeof(HttpRequest) * (size_t)count) : NULL;
 
   for (int i = 0; i < count; i++) {
+    // Each request gets its own context, which a transfer takes over without copying the request.
+    // Until then it is a child of the context active before connecting to SPI.
+    MemoryContext context = AllocSetContextCreateInternal(
+        GetMemoryChunkContext(result), EXTNAME " request", ALLOCSET_SMALL_MINSIZE,
+        ALLOCSET_SMALL_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE);
+
     HeapTuple tuple = SPI_tuptable->vals[i];
     TupleDesc desc  = SPI_tuptable->tupdesc;
 
@@ -143,9 +139,10 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
     Datum timeout = SPI_getbinval(tuple, desc, 4, &isnull);
     if (isnull) ereport(ERROR, errmsg("unexpected null timeout_milliseconds in http.requests"));
 
-    result[i] = (HttpRequest){.id                   = DatumGetInt64(id),
-                              .method               = spi_copy_string(method),
-                              .url                  = spi_copy_string(url),
+    result[i] = (HttpRequest){.context              = context,
+                              .id                   = DatumGetInt64(id),
+                              .method               = MemoryContextStrdup(context, method),
+                              .url                  = MemoryContextStrdup(context, url),
                               .timeout_milliseconds = DatumGetInt32(timeout),
                               .headers              = NULL,
                               .body                 = NULL,
@@ -174,7 +171,7 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
     Datum body = SPI_getbinval(tuple, desc, 6, &isnull);
     if (!isnull) {
       size_t len         = 0;
-      result[i].body     = spi_copy_bytea(body, &len);
+      result[i].body     = copy_bytea(context, body, &len);
       result[i].body_len = len;
     }
   }

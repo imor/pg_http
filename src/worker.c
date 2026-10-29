@@ -242,7 +242,7 @@ static void reject(HttpTransfer *transfer, const char *reason) {
 static void send_requests(HttpClient *client, HttpRequest *requests, int num_requests,
                           Oid requests_relid) {
   for (int i = 0; i < num_requests; i++) {
-    // The transfer takes over the request, which is freed with the batch
+    // The transfer takes over the request and its context, only the array is freed with the batch
     HttpTransfer *transfer = http_transfer_create(&requests[i], requests_relid);
     if (transfer == NULL) {
       ereport(ERROR, errmsg(EXTNAME ": could not initialize http transfer"));

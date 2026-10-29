@@ -13,17 +13,19 @@ static size_t write_callback(char *data, size_t size, size_t nmemb, void *userp)
 }
 
 HttpTransfer *http_transfer_create(HttpRequest *request, Oid requests_relid) {
-  // The Internal variant avoids the GNU statement expression in the macro
-  MemoryContext context =
-      AllocSetContextCreateInternal(TopMemoryContext, EXTNAME " transfer", ALLOCSET_SMALL_MINSIZE,
-                                    ALLOCSET_SMALL_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE);
+  // Take over the request's context, so the request outlives the batch it was read in
+  MemoryContext context = request->context;
+  MemoryContextSetParent(context, TopMemoryContext);
   MemoryContext old_context = MemoryContextSwitchTo(context);
 
   HttpTransfer *transfer   = palloc(sizeof(HttpTransfer));
   transfer->context        = context;
-  transfer->request        = http_request_take(request);
+  transfer->request        = *request;
   transfer->requests_relid = requests_relid;
   http_response_init(&transfer->response);
+
+  request->context = NULL;
+  request->headers = NULL;
 
   MemoryContextSwitchTo(old_context);
 

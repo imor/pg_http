@@ -1,6 +1,8 @@
 #ifndef PG_HTTP_REQUEST_H
 #define PG_HTTP_REQUEST_H
 
+#include "pg_prelude.h"
+
 #include <curl/curl.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -10,6 +12,10 @@
  * the request.
  */
 typedef struct HttpRequest {
+  // Holds the memory of the request, except the headers. Owned by the request, until a transfer
+  // takes it over.
+  MemoryContext context;
+
   // The id of the request in the queue table.
   int64_t id;
 
@@ -33,12 +39,6 @@ typedef struct HttpRequest {
   // Length of the body in bytes
   size_t      body_len;
 } HttpRequest;
-
-/*
- * Returns a copy of `request`, allocated in the current memory context. The ownership of the
- * headers list moves to the copy, `request->headers` is set to NULL.
- */
-HttpRequest http_request_take(HttpRequest *request);
 
 /*
  * Returns NULL if the request is valid and can be sent, otherwise a palloc'd

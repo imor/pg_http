@@ -18,7 +18,7 @@ typedef enum {
  *
  * The caller must have connected to SPI.
  * The `requests` array will be allocated in the memory context active
- * before connecting to SPI.
+ * before connecting to SPI. Each request is allocated in its own child context of it.
  */
 TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_requests);
 

@@ -18,24 +18,6 @@ static char *crlf_header_rejection(const char *header) {
   return psprintf("header \"%.*s\" contains a carriage return or line feed", (int)name_len, header);
 }
 
-HttpRequest http_request_take(HttpRequest *request) {
-  HttpRequest copy = *request;
-  copy.method      = pstrdup(request->method);
-  copy.url         = pstrdup(request->url);
-
-  request->headers = NULL;
-
-  copy.body = NULL;
-  if (request->body != NULL) {
-    char *body = palloc(request->body_len + 1);
-    memcpy(body, request->body, request->body_len);
-    body[request->body_len] = '\0';
-    copy.body               = body;
-  }
-
-  return copy;
-}
-
 char *http_request_rejection(const HttpRequest *request, int max_timeout_ms) {
   // libcurl treats a 0 timeout as no timeout, and a request that never finishes would be kept
   // forever, so requests outside the bound are not sent.

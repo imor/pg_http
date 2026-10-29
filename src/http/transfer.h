@@ -13,7 +13,7 @@
  * transfer is destroyed, which is after its response was saved.
  */
 typedef struct HttpTransfer {
-  // Holds the memory of the transfer, including the copy of the request and the response data
+  // Holds the memory of the transfer, including the request and the response data
   MemoryContext context;
 
   // The request, owned by the transfer. Its headers are freed with the handle.
@@ -31,9 +31,10 @@ typedef struct HttpTransfer {
 } HttpTransfer;
 
 /*
- * Creates a transfer for `request`, which is copied. The ownership of its headers moves to the
- * transfer. Returns NULL if the CURL handle couldn't be created. The transfer lives in a child
- * context of TopMemoryContext.
+ * Creates a transfer for `request`, which it takes over without copying: the request's context
+ * becomes the transfer's and is moved under TopMemoryContext, and the ownership of the headers
+ * moves to the transfer. `request` is left without a context and headers. Returns NULL if the
+ * CURL handle couldn't be created.
  */
 HttpTransfer *http_transfer_create(HttpRequest *request, Oid requests_relid);
 
