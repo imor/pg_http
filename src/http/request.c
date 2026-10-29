@@ -18,7 +18,7 @@ static char *crlf_header_rejection(const char *header) {
   return psprintf("header \"%.*s\" contains a carriage return or line feed", (int)name_len, header);
 }
 
-char *http_request_rejection(const HttpRequest *request, int max_timeout_ms) {
+char *http_request_validate(const HttpRequest *request, int max_timeout_ms) {
   // libcurl treats a 0 timeout as no timeout, and a request that never finishes would be kept
   // forever, so requests outside the bound are not sent.
   if (request->timeout_milliseconds <= 0 || request->timeout_milliseconds > max_timeout_ms) {

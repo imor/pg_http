@@ -37,7 +37,7 @@ typedef struct HttpRequest {
   const char *body;
 
   // Length of the body in bytes
-  size_t      body_len;
+  size_t body_len;
 } HttpRequest;
 
 /*
@@ -45,6 +45,6 @@ typedef struct HttpRequest {
  * message describing why it can't be sent. `max_timeout_ms` is the upper bound
  * for the timeout of a request.
  */
-char *http_request_rejection(const HttpRequest *request, int max_timeout_ms);
+char *http_request_validate(const HttpRequest *request, int max_timeout_ms);
 
 #endif /* PG_HTTP_REQUEST_H */

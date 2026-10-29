@@ -10,6 +10,15 @@ void http_response_init(HttpResponse *response) {
   initStringInfo(&response->body);
 }
 
+size_t http_response_write_body(char *data, size_t size, size_t nmemb, void *userp) {
+  HttpResponse *response = (HttpResponse *)userp;
+  size_t        total    = size * nmemb;
+
+  appendBinaryStringInfo(&response->body, data, (int)total);
+
+  return total;
+}
+
 void http_response_collect_headers(HttpResponse *response, CURL *easy) {
   JsonbParseState *state = NULL;
   pushJsonbValue(&state, WJB_BEGIN_OBJECT, NULL);

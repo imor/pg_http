@@ -33,6 +33,12 @@ typedef struct HttpResponse {
 void http_response_init(HttpResponse *response);
 
 /*
+ * CURL's write callback: appends the received data to the body of the HttpResponse `userp`.
+ * Allocates in the memory context of the body.
+ */
+size_t http_response_write_body(char *data, size_t size, size_t nmemb, void *userp);
+
+/*
  * Fills in `headers` from the final response of the finished transfer with the easy handle
  * `easy`. Must be called before the handle is released. Allocates in the current memory context.
  */

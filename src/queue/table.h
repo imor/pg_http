@@ -2,7 +2,7 @@
 #define PG_HTTP_TABLE_QUEUE_H
 
 #include "http/request.h"
-#include "http/transfer.h"
+#include "http/result.h"
 #include "pg_prelude.h"
 
 typedef enum {
@@ -31,12 +31,12 @@ TableQueueStatus dequeue(int num_entries, HttpRequest **requests, int *num_reque
 TableQueueStatus reset_in_flight(void);
 
 /*
- * Retire a batch of finished transfers: saves their responses in http.responses and marks
+ * Retire a batch of results: saves their responses in http.responses and marks
  * the requests as completed. The requests are not deleted, see delete_expired.
  *
  * The caller must have connected to SPI.
  */
-TableQueueStatus retire(HttpTransfer **transfers, int num_transfers);
+TableQueueStatus retire(HttpResult **results, int num_results);
 
 /*
  * Deletes at most `max_to_delete` responses which are older than the interval `ttl`, along with

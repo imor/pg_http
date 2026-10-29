@@ -1,55 +1,41 @@
 #include "transfer.h"
 
 #include <float.h>
-#include <string.h>
 
-static size_t write_callback(char *data, size_t size, size_t nmemb, void *userp) {
-  HttpResponse *response = (HttpResponse *)userp;
-  size_t        total    = size * nmemb;
+/*
+ * Frees the transfer and returns its result
+ */
+static HttpResult *end(HttpTransfer *transfer) {
+  HttpResult *result = transfer->result;
 
-  appendBinaryStringInfo(&response->body, data, (int)total);
+  if (transfer->easy != NULL) curl_easy_cleanup(transfer->easy);
+  // Only free once libcurl is done with the headers
+  curl_slist_free_all(transfer->request.headers);
+  pfree(transfer);
 
-  return total;
+  return result;
 }
 
 HttpTransfer *http_transfer_create(HttpRequest *request, Oid requests_relid) {
-  // Take over the request's context, so the request outlives the batch it was read in
-  MemoryContext context = request->context;
-  MemoryContextSetParent(context, TopMemoryContext);
-  MemoryContext old_context = MemoryContextSwitchTo(context);
+  HttpResult   *result   = http_result_create(request, requests_relid);
+  HttpTransfer *transfer = MemoryContextAlloc(result->context, sizeof(HttpTransfer));
+  transfer->request      = *request;
+  transfer->result       = result;
 
-  HttpTransfer *transfer   = palloc(sizeof(HttpTransfer));
-  transfer->context        = context;
-  transfer->request        = *request;
-  transfer->requests_relid = requests_relid;
-  http_response_init(&transfer->response);
-
-  request->context = NULL;
   request->headers = NULL;
-
-  MemoryContextSwitchTo(old_context);
 
   transfer->easy = curl_easy_init();
   if (transfer->easy == NULL ||
-      curl_easy_setopt(transfer->easy, CURLOPT_WRITEFUNCTION, write_callback) != CURLE_OK ||
-      curl_easy_setopt(transfer->easy, CURLOPT_WRITEDATA, &transfer->response) != CURLE_OK ||
+      curl_easy_setopt(transfer->easy, CURLOPT_WRITEFUNCTION, http_response_write_body) !=
+          CURLE_OK ||
+      curl_easy_setopt(transfer->easy, CURLOPT_WRITEDATA, &result->response) != CURLE_OK ||
       // The default User-Agent, libcurl omits it if the request headers already set one
       curl_easy_setopt(transfer->easy, CURLOPT_USERAGENT, EXTNAME "/" EXTVERSION) != CURLE_OK) {
-    http_transfer_destroy(transfer);
+    http_result_destroy(end(transfer));
     return NULL;
   }
 
   return transfer;
-}
-
-void http_transfer_release_handle(HttpTransfer *transfer) {
-  if (transfer->easy == NULL) return;
-  curl_easy_cleanup(transfer->easy);
-  transfer->easy = NULL;
-
-  // Only free once libcurl is done with the headers
-  curl_slist_free_all(transfer->request.headers);
-  transfer->request.headers = NULL;
 }
 
 /*
@@ -67,8 +53,10 @@ static double timing(CURL *easy, CURLINFO info) {
  * still be determined from the total time. If a step is omitted (e.g. SSL on plain HTTP) its
  * timing is 0 as well. The pretransfer time is greater than 0 once the HTTP step started.
  * See https://blog.cloudflare.com/a-question-of-timing/
+ *
+ * Must be called before the handle is cleaned up. Allocated in the current memory context.
  */
-char *http_transfer_timeout_message(HttpTransfer *transfer) {
+static char *timeout_message(HttpTransfer *transfer) {
   CURL  *easy        = transfer->easy;
   double namelookup  = timing(easy, CURLINFO_NAMELOOKUP_TIME);
   double connect     = timing(easy, CURLINFO_CONNECT_TIME);
@@ -97,7 +85,48 @@ char *http_transfer_timeout_message(HttpTransfer *transfer) {
                   handshake * 1000, http * 1000);
 }
 
-void http_transfer_destroy(HttpTransfer *transfer) {
-  http_transfer_release_handle(transfer);
-  MemoryContextDelete(transfer->context);
+/*
+ * Maps a CURL error to a value of the http.error_type enum
+ */
+static const char *error_type_for(CURLcode code) {
+  if (code == CURLE_OPERATION_TIMEDOUT) return "timeout";
+
+  if (code == CURLE_COULDNT_RESOLVE_PROXY || code == CURLE_COULDNT_RESOLVE_HOST ||
+      code == CURLE_COULDNT_CONNECT || code == CURLE_SSL_CONNECT_ERROR)
+    return "connection_error";
+
+  return "other";
+}
+
+HttpResult *http_transfer_finish(HttpTransfer *transfer, CURLcode code, long status_code) {
+  HttpResponse *response = &transfer->result->response;
+
+  // Everything kept in the response lives as long as the result
+  MemoryContext old_context = MemoryContextSwitchTo(transfer->result->context);
+
+  if (code != CURLE_OK) {
+    ereport(LOG, errmsg(EXTNAME ": request failed: %s", curl_easy_strerror(code)));
+
+    response->error_msg  = code == CURLE_OPERATION_TIMEDOUT ? timeout_message(transfer)
+                                                            : pstrdup(curl_easy_strerror(code));
+    response->error_type = error_type_for(code);
+    resetStringInfo(&response->body);
+  } else {
+    ereport(LOG, errmsg(EXTNAME ": got response with status %ld and %d body bytes", status_code,
+                        response->body.len));
+    response->status_code = (int32)status_code;
+    http_response_collect_headers(response, transfer->easy);
+  }
+
+  MemoryContextSwitchTo(old_context);
+
+  return end(transfer);
+}
+
+HttpResult *http_transfer_abort(HttpTransfer *transfer, const char *reason) {
+  HttpResponse *response = &transfer->result->response;
+  response->error_msg    = MemoryContextStrdup(transfer->result->context, reason);
+  response->error_type   = "other";
+
+  return end(transfer);
 }

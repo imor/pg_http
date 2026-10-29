@@ -3,56 +3,44 @@
 
 #include "pg_prelude.h"
 #include "request.h"
-#include "response.h"
+#include "result.h"
 
 #include <curl/curl.h>
 
 /*
- * An HTTP transfer: a request and the response it gets, along with the state of sending it.
- * Everything it owns is allocated in its own memory context, so it stays valid until the
- * transfer is destroyed, which is after its response was saved.
+ * An HTTP transfer in flight: a request being sent and the result its response is collected
+ * in. A transfer ends with http_transfer_finish or http_transfer_abort, which free it and hand
+ * over its result.
  */
 typedef struct HttpTransfer {
-  // Holds the memory of the transfer, including the request and the response data
-  MemoryContext context;
-
-  // The request, owned by the transfer. Its headers are freed with the handle.
+  // The request, its strings are allocated in the result's context. Its headers are owned by
+  // the transfer, libcurl uses them until the transfer ends.
   HttpRequest request;
 
-  // The response of the request
-  HttpResponse response;
-
-  // CURL's easy handle for this HTTP transfer. NULL once released.
+  // CURL's easy handle for this HTTP transfer
   CURL *easy;
 
-  // The oid of the requests table when the request was read from it. Used to drop the response
-  // if the extension was dropped, and maybe created again, in the meantime.
-  Oid requests_relid;
+  // The result the response is collected in
+  HttpResult *result;
 } HttpTransfer;
 
 /*
- * Creates a transfer for `request`, which it takes over without copying: the request's context
- * becomes the transfer's and is moved under TopMemoryContext, and the ownership of the headers
- * moves to the transfer. `request` is left without a context and headers. Returns NULL if the
- * CURL handle couldn't be created.
+ * Creates a transfer for `request`, taking over its context and headers, see http_result_create.
+ * Returns NULL if the CURL handle couldn't be created, `request` is freed then.
  */
 HttpTransfer *http_transfer_create(HttpRequest *request, Oid requests_relid);
 
 /*
- * Release the CURL easy handle, keeping the request and the response data. Must only be
- * called once the transfer is finished and removed from the multi handle.
+ * Ends a transfer which completed with `code` and, if successful, `status_code`: fills in its
+ * result from the response, frees the transfer and returns the result. The handle must have been
+ * removed from the multi handle.
  */
-void http_transfer_release_handle(HttpTransfer *transfer);
+HttpResult *http_transfer_finish(HttpTransfer *transfer, CURLcode code, long status_code);
 
 /*
- * Returns a message with the details of a timed out transfer: the time spent in each step.
- * Allocated in the current memory context. Must be called before the handle is released.
+ * Ends a transfer which couldn't be started, failing with `reason`: frees the transfer and
+ * returns its result. The handle must not be in a multi handle.
  */
-char *http_transfer_timeout_message(HttpTransfer *transfer);
-
-/*
- * Destroy an HttpTransfer, freeing the request and the response with it
- */
-void http_transfer_destroy(HttpTransfer *transfer);
+HttpResult *http_transfer_abort(HttpTransfer *transfer, const char *reason);
 
 #endif /* PG_HTTP_TRANSFER_H */
